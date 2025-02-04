@@ -1,0 +1,35 @@
+**実践Common  lisp**
+
+#+begin_src lisp
+  (defun hello-world ()
+  (format t "Hello, world"))
+#+end_src
+
+#+RESULTS:
+: NIL
+
+* 第3章 実践:簡単なデータベース
+** CDの曲を管理する簡単なデータベースを作成する。
+**** リスト
+#+begin_src lisp
+(list 1 2 3)
+#+end_src
+
+#+RESULTS:
+| 1 | 2 | 3 |
+
+**** 属性リスト
+#+begin_src lisp
+  (getf (list :a 1 :b 2) :b)
+#+end_src
+
+#+RESULTS:
+: 2
+*** CDを表す属性リストを返す関数
+#+begin_src lisp
+ (defun make-cd (title artist rating ripped) (list :title title :artist artist :rating rating :ripped ripped))
+#+end_src
+
+#+RESULTS:
+: MAKE-CD
+
