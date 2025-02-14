@@ -6,7 +6,7 @@
 #+end_src
 
 #+RESULTS:
-: NIL
+: HELLO-WORLD
 
 * 第3章 実践:簡単なデータベース
 ** CDの曲を管理する簡単なデータベースを作成する。
@@ -27,9 +27,322 @@
 : 2
 *** CDを表す属性リストを返す関数
 #+begin_src lisp
- (defun make-cd (title artist rating ripped) (list :title title :artist artist :rating rating :ripped ripped))
+  (defun make-cd (title artist rating ripped) (list :title title :artist artist :rating rating :ripped ripped))
 #+end_src
 
 #+RESULTS:
 : MAKE-CD
 
+*** データベースを格納するダイナミック変数と、それを操作する関数
+
+グローバル変数には耳当てをつける
+#+begin_src lisp
+(defvar *db* nil)
+#+end_src
+
+#+RESULTS:
+: *DB*
+
+Create
+#+begin_src lisp
+  (defun add-record (cd) (push cd *db*))
+  (add-record (make-cd "Beyond The Binary" "星宮とと, SOZEN OTSUBO" 7 t))
+  (add-record (make-cd "Sakanaction" "サカナクション" 10 t))
+  (add-record (make-cd "懐かしい月は新しい月" "サカナクション" 10 t))
+  (add-record (make-cd "条理加速の片隅、彼女と想像の中身に関する行方 EP" "gaburyu" 8 t))
+  (add-record (make-cd "NewJeans 2nd EP 'Get Up'" "NewJeans" 7 t))
+  (add-record (make-cd "Perfume The Best 'P Cubed'" "Perfume" 9 t))
+#+end_src
+
+#+RESULTS:
+| :TITLE | Perfume The Best 'P Cubed'                 | :ARTIST | Perfume               | :RATING |  9 | :RIPPED | T |
+| :TITLE | NewJeans 2nd EP 'Get Up'                   | :ARTIST | NewJeans              | :RATING |  7 | :RIPPED | T |
+| :TITLE | 条理加速の片隅、彼女と想像の中身に関する行方 EP | :ARTIST | gaburyu               | :RATING |  8 | :RIPPED | T |
+| :TITLE | 懐かしい月は新しい月                         | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction                                | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Beyond The Binary                          | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING |  7 | :RIPPED | T |
+| :TITLE | 懐かしい月は新しい月                         | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction                                | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Beyond The Binary                          | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING |  7 | :RIPPED | T |
+
+Read
+#+begin_src lisp
+  (defun dump-db ()
+    (dolist (cd *db*)
+      (format t "~{~a:~10t~a~%~}~%" cd)))
+#+end_src
+
+#+RESULTS:
+: DUMP-DB
+
+*** ユーザインタラクションを改善する
+~force-output~で、改行コードを待つことなくプロンプトが印字されるように保証する。
+prompt-readの戻り値は最後のフォームの値、つまりREAD-LINEを呼び出した戻
+り値であり、READ-LINEは読み込んだ文字列を値として返す。
+#+begin_src lisp
+  (defun prompt-read (prompt)
+    (format *query-io* "~a: " prompt)
+    (force-output *query-io*)
+    (read-line *query-io*))
+#+end_src
+
+#+RESULTS:
+: PROMPT-READ
+
+値を順々に入力してもらいながら、新たなCDのレコードを生成する。
+
+~PARSE-INTEGER~ 関数
+- 文字列から数値が読み取れなかったり、数値でないゴミが混じっていると、エラーを通知するようになっている。 ~:junk-allowed~ に
+~t~ をセットすると、エラーを抑制できる。
+- 数字を1つも見つけられなかったり、文字列全部がゴミだったら、 ~nil~ を返
+  すようになっている。 ~OR~ マクロを使って、nilなら0を返すようにする
+
+~Y-OR-N-P~ 関数は、y, Y, n, Nで始まらない入力があるとユーザに再度入力を促す。
+#+begin_src lisp
+  (defun prompt-for-cd ()
+    (make-cd
+     (prompt-read "Title")
+     (prompt-read "Artist")
+     (or (parse-integer (prompt-read "Rating") :junk-allowed t) 0)
+     (y-or-n-p "Ripped [y/n]")
+     ))
+#+end_src
+
+#+RESULTS:
+: PROMPT-FOR-CD
+
+仕上げに、 ~prompt-for-cd~ をユーザの気の済むまでループする関数でラップ
+すれば、インタフェースの完成
+#+begin_src lisp
+  (defun add-cds ()
+        (loop (add-record (prompt-for-cd))
+              (if (not (y-or-n-p "Another? [y/n]: ")) (return))))
+#+end_src
+
+#+RESULTS:
+: ADD-CDS
+
+*** データベースの保存と読み出し
+
+~WITH-OPEN-FILE~ マクロ
+1. ファイルをオープンする
+2. それを対応するストリーム変数に束縛する
+3. 実行し終わったらファイルをクローズする
+~WITH_STANDARD_IO_SYNTAX~ マクロ
+- ~PRINT~ の動作に影響を与える可能性のある変数が、標準的な値に設定された
+  状態になることを保証する
+
+#+begin_src lisp
+           (defun save-db (filename)
+             (with-open-file (out filename
+                                  :direction :output
+                                  :if-exists :supersede)
+               (with-standard-io-syntax
+                 (print *db* out))))
+#+end_src
+
+#+RESULTS:
+: SAVE-DB
+
+#+begin_src lisp
+(save-db "/Users/gomadoufu/ghq/github.com/gomadoufu/book-practical-common-lisp/my-cds.db")
+#+end_src
+
+#+RESULTS:
+| :TITLE | Perfume The Best 'P Cubed'                 | :ARTIST | Perfume               | :RATING |  9 | :RIPPED | T |
+| :TITLE | NewJeans 2nd EP 'Get Up'                   | :ARTIST | NewJeans              | :RATING |  7 | :RIPPED | T |
+| :TITLE | 条理加速の片隅、彼女と想像の中身に関する行方 EP | :ARTIST | gaburyu               | :RATING |  8 | :RIPPED | T |
+| :TITLE | 懐かしい月は新しい月                         | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction                                | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Beyond The Binary                          | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING |  7 | :RIPPED | T |
+| :TITLE | 懐かしい月は新しい月                         | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction                                | :ARTIST | サカナクション         | :RATING | 10 | :RIPPED | T |
+| :TITLE | Beyond The Binary                          | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING |  7 | :RIPPED | T |
+
+#+begin_src lisp
+  (defun load-db (filename)
+      (with-open-file (in filename)
+        (with-standard-io-syntax
+          (setf *db* (read in)))))
+#+end_src
+
+#+RESULTS:
+: LOAD-DB
+
+#+name: ファイルからロードする
+#+begin_src lisp
+(load-db "/Users/gomadoufu/ghq/github.com/gomadoufu/book-practical-common-lisp/my-cds.db")
+#+end_src
+
+#+RESULTS: ファイルからロードする
+| :TITLE | Perfume The Best 'P Cubed'                | :ARTIST | Perfume               | :RATING |  9 | :RIPPED | T |
+| :TITLE | NewJeans 2nd EP 'Get Up'                  | :ARTIST | NewJeans              | :RATING |  7 | :RIPPED | T |
+| :TITLE | 条理加速の片隅、彼女と想像の中身に関する行方 EP | :ARTIST | gaburyu               | :RATING |  8 | :RIPPED | T |
+| :TITLE | 懐かしい月は新しい月                         | :ARTIST | サカナクション          | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction                               | :ARTIST | サカナクション          | :RATING | 10 | :RIPPED | T |
+| :TITLE | Beyond The Binary                         | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING |  7 | :RIPPED | T |
+*** データベースにクエリを投げる
+~REMOVE-IF-NOT~ 関数は述語とリストを引数にとって、述語を成立させる要素だけを含む新しいリストを返す。
+~#'~ は、その後に来る識別子が変数ではなく関数であることを意味する。
+#+begin_src lisp 
+  (remove-if-not #'(lambda (cd) (equal (getf cd :artist) "サカナクション")) *db*)
+#+end_src
+
+#+RESULTS:
+| :TITLE | 懐かしい月は新しい月 | :ARTIST | サカナクション | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction       | :ARTIST | サカナクション | :RATING | 10 | :RIPPED | T |
+
+いろんなセレクタを引数に取る関数 select
+#+begin_src lisp
+  (defun select (selector-fn)
+    (remove-if-not selector-fn *db*))
+#+end_src
+
+#+RESULTS:
+: SELECT
+
+アーティストセレクタ
+#+begin_src lisp
+  (defun artist-selector (artist)
+    #'(lambda (cd) (equal (getf cd :artist) artist)))
+#+end_src
+
+#+RESULTS:
+: ARTIST-SELECTOR
+
+select関数の呼び出し
+#+begin_src lisp
+  (select (artist-selector "サカナクション"))
+#+end_src
+
+#+RESULTS:
+| :TITLE | 懐かしい月は新しい月 | :ARTIST | サカナクション | :RATING | 10 | :RIPPED | T |
+| :TITLE | Sakanaction       | :ARTIST | サカナクション | :RATING | 10 | :RIPPED | T |
+
+汎用セレクタ関数生成機 where。
+関数の引数リストの先頭に ~&key~ とつけることで、以降の引数を **キーワードパラメータ** にすることができる。
+キーワードパラメータを使うと、引数を好きな順序で呼び出せるようになる。
+また、引数に値を与えなくても関数が動作するようになる。値を与えなかった場合、そこは ~NIL~ になる。
+さらに引数にはデフォルト引数を指定できるほか、値として与えた ~NIL~ と値が与えられなかった ~NIL~ を区別するための
+パラメータ ~supplied-p~ を付与することもできるようになる。
+#+begin_src lisp
+  (defun where (&key title artist rating (ripped nil ripped-p))
+    #'(lambda (cd)
+        (and
+         (if title (equal (getf cd :title) title) t)
+         (if artist (equal (getf cd :artist) artist) t)
+         (if rating (equal (getf cd :rating) rating) t)
+         (if ripped-p (equal (getf cd :ripped) ripped) t))))
+#+end_src
+
+#+RESULTS:
+: WHERE
+
+*** 既存のレコードを更新する
+レコードを更新する update 関数
+#+begin_src lisp
+  (defun update (selector-fn &key title artist rating (ripped nil ripped-p))
+     (setf *db*
+         (mapcar
+          #'(lambda (row)
+              (when (funcall selector-fn row)
+                 (if title (setf (getf row :title) title))
+                 (if artist (setf (getf row :artist) artist))
+                 (if rating (setf (getf row :rating) rating))
+                 (if ripped-p (setf (getf row :ripped) ripped)))
+              row)
+          *db*)))
+#+end_src
+
+#+RESULTS:
+: UPDATE
+
+#+begin_src lisp
+  (update (where :artist "サカナクション") :rating 11)
+#+end_src
+
+#+RESULTS:
+| :TITLE | Perfume The Best 'P Cubed'                | :ARTIST | Perfume               | :RATING |  9 | :RIPPED | T |
+| :TITLE | NewJeans 2nd EP 'Get Up'                  | :ARTIST | NewJeans              | :RATING |  7 | :RIPPED | T |
+| :TITLE | 条理加速の片隅、彼女と想像の中身に関する行方 EP | :ARTIST | gaburyu               | :RATING |  8 | :RIPPED | T |
+| :TITLE | 懐かしい月は新しい月                         | :ARTIST | サカナクション          | :RATING | 11 | :RIPPED | T |
+| :TITLE | Sakanaction                               | :ARTIST | サカナクション          | :RATING | 11 | :RIPPED | T |
+| :TITLE | Beyond The Binary                         | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING |  7 | :RIPPED | T |
+
+既存のレコードを削除する
+#+begin_src lisp
+    (defun delete-rows (selector-fn)
+      (setf *db* (remove-if selector-fn *db*)))
+#+end_src
+
+#+RESULTS:
+: DELETE-ROWS
+
+*** ムダを排除して勝利を収める
+マクロの話が出てきた！
+- 「CやC++におけるテキストベースのマクロとCommon Lispのマクロとは、名前以外に本質的に何も共有しているものはない」
+  - Rustの健全な(?)マクロとは似ているところがあるのかも
+- 「Lispのマクロの本質は、自動的なコードジェネレータだ」
+#+name: 初めてのマクロ
+#+begin_src lisp :results output
+  (defmacro backwards (expr) (reverse expr))
+  (backwards ("hello, world" t format))
+#+end_src
+
+  #+RESULTS: 初めてのマクロ
+  : hello, world
+
+シングルクォートをつけると、Lispにそのフォームを評価することをやめさせることができる。
+またバッククォートをつけると、クォートと同じように全体が評価されなくなるが、コンマが前に置かれた部分式だけは評価されるようになる。
+#+begin_src lisp :results scalar
+    (defun make-comparison-expr (field value)
+      (list 'equal (list 'getf 'cd field value)))
+
+    (defun make-comparison-expr (field value)
+      `(equal (getf cd ,field) ,value))
+
+    (make-comparison-expr :rating 10)
+#+end_src
+
+#+RESULTS:
+: (EQUAL (GETF CD :RATING) 10)
+
+~LOOPマクロ~ を使ってみよう
+#+begin_src lisp
+      (defun make-comparisons-list (fields)
+        (loop while fields
+              collecting (make-comparison-expr (pop fields) (pop fields))))
+#+end_src
+
+#+RESULTS:
+: MAKE-COMPARISONS-LIST
+
+whereをマクロで置き換える
+- ~,@~ は、続く式を評価して、それを取り囲んでいるリストと繋ぎ合わせる。
+- ~&rest~ があると関数やマクロは任意個数の引数を取れるようになり、それらのリストが単一の実引数になる。
+#+begin_src lisp
+    (defmacro where (&rest clauses)
+      `#'(lambda (cd) (and ,@(make-comparisons-list clauses))))
+#+end_src
+
+#+RESULTS:
+: WHERE
+
+~MACROEXPAND-1~ を使うと、マクロを展開してチェックできる。
+#+begin_src lisp :results scalar
+  (macroexpand-1 '(where :title "Beyond The Binary" :ripped t))
+#+end_src
+
+#+RESULTS:
+: #'(LAMBDA (CD)
+:     (AND (EQUAL (GETF CD :TITLE) "Beyond The Binary")
+:          (EQUAL (GETF CD :RIPPED) T)))
+: T
+
+whereマクロを実際に使ってみよう！
+#+begin_src lisp
+  (select (where :title "Beyond The Binary" :ripped t))
+#+end_src
+
+#+RESULTS:
+| :TITLE | Beyond The Binary | :ARTIST | 星宮とと, SOZEN OTSUBO | :RATING | 7 | :RIPPED | T |
