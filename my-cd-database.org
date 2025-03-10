@@ -1,12 +1,23 @@
 **実践Common  lisp**
-
 #+begin_src lisp
-  (defun hello-world ()
-  (format t "Hello, world"))
+  (defmacro dbg (expr)
+  `(let ((result ,expr))
+     (format t "~&[DEBUG] ~S => ~S~%" ',expr result)
+     result))
 #+end_src
 
 #+RESULTS:
-: HELLO-WORLD
+: DBG
+
+#+begin_src lisp :results output
+  (defun hello-world ()
+  (format t "Hello, world"))
+  (dbg (hello-world))
+#+end_src
+
+#+RESULTS:
+: Hello, world
+: [DEBUG] (HELLO-WORLD) => NIL
 
 * 第3章 実践:簡単なデータベース
 ** CDの曲を管理する簡単なデータベースを作成する。
@@ -478,4 +489,228 @@ Lispオブジェクト全般に使える、等価性判定の総称的な述語�
 関数が呼び出される時、必須パラメータには、対応する実引数が必要になる。
 必須パラメータと実引数の数が合わないと、Lispはエラーを通知する。
 *** オプショナルパラメータ
+関数呼び出しをするときに、一部の引数は適当なデフォルト値にして、関数側ででうまくやってほしい場面がある。
+オプショナルパラメータを使うと、細かい値を気にしない呼び出し元に対しては適当なデフォルト値にして、
+そうでない呼び出し元からは特定の値を受け取れるようにできる。
+
+オプショナルパラメータ付きの関数を定義するには、すべての必須パラメータの *後に、*
+~&optional~ というシンボルを置き、その後にオプショナルパラメータの名前を続ける。
+#+begin_src lisp
+  (defun foo (a b &optional c d) (list a b c d))
+#+end_src
+
+#+RESULTS:
+: FOO
+
+この関数が呼ばれたとき、引数は最初に必須パラメータに束縛され、さらに引数が残っていたら、
+その値はオプショナルパラメータに束縛される。引数が残っていなければ、オプショナルパラメータは ~NIL~ になる。
+
+#+begin_src lisp :results output
+  (dbg (foo 1 2))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO 1 2) => (1 2 NIL NIL)
+
+#+begin_src lisp :results output
+  (dbg (foo 1 2 3))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO 1 2 3) => (1 2 3 NIL)
+
+#+begin_src lisp :results output
+  (dbg (foo 1 2 3 4))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO 1 2 3 4) => (1 2 3 4)
+
+
+~NIL~ 以外のデフォルト値を指定するには、パラメータの名前の代わりに、名前とデフォルト値からなるリストを指定する。
+#+begin_src lisp
+  (defun foo (a &optional (b 10)) (list a b))
+#+end_src
+
+#+RESULTS:
+: FOO
+
+#+begin_src lisp :results output
+  (dbg (foo "hello"))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO "hello") => ("hello" 10)
+
+#+begin_src lisp :results output
+  (dbg (foo "hello" "world"))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO "hello" "world") => ("hello" "world")
+
+デフォルト値を設定する式では、すでにパラメータリストに登場している値を参照できる。
+例えば矩形を描画する関数を書いているとして、特に正方形を手軽に描画したいとすると、こんなふうに書ける。
+#+begin_src lisp :eval no
+  (defun make-rectangle (width &optional (height width)) ...)
+#+end_src
+
+
+パラメータを指定するリストのデフォルト値の式の後に追加の変数を設定すると、オプショナル引数の実引数が
+デフォルト値なのかカスタムの値なのかを判定できる。
+#+begin_src lisp
+  (defun foo (a b &optional (c 3 c-supplied-p))
+    (list a b c c-supplied-p))
+#+end_src
+
+#+RESULTS:
+: FOO
+
+この関数では、 ~c~ がカスタムの値なら ~c-supplied-p~ が真に、そうでなければ ~NIL~ に束縛される。
+このように使う変数の名前は、実際のパラメータの名前に ~-supplied-p~ をつけたものにするのが慣例。
+#+begin_src lisp :results output
+  (dbg (foo 1 2))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO 1 2) => (1 2 3 NIL)
+
+#+begin_src lisp :results output
+  (dbg (foo 1 2 100))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO 1 2 100) => (1 2 100 T)
+
+*** レストパラメータ
+必須パラメータとオプショナルパラメータに割り当てた後の残りの引数を、
+シンボル ~&rest~ の後ろのパラメータにまとめることができる。
+これはレストパラメータと呼ばれ、この残りの引数はリストとしてまとめられる。
+レストパラメータを使うと、可変長引数を実現できる。
+#+begin_src lisp
+  (defun my+ (&rest numbers)
+  (if (null numbers)
+      0
+      (+ (car numbers) (apply #'my+ (cdr numbers)))))
+  (dbg (my+ 1 2 3))
+#+end_src
+
+#+RESULTS:
+: MY+
+
+*** キーワードパラメータ
+キーワードパラメータを使うと、オプショナルパラメータよりももっと柔軟に、指定した位置の引数にだけ値を渡すことができる。
+関数にキーワードパラメータを設定するには、必須パラメータと ~&optional~ および ~&rest~ の各パラメータの後に、
+ ~&key~ というシンボルと任意の数の識別子を、リストとしてまとめておく。
+#+begin_src lisp :eval no
+  (defun foo (&key a b c) (list a b c))
+#+end_src
+
+各キーワードパラメータは同じ名前のキーワードの直後の値に束縛される。もし与えられたキーワードに対応する実引数が
+与えられなかったら、対応するパラメータにはデフォルト値が割り当てられる。
+デフォルト値の指定方法まわりは、オプショナルパラメータと同様。 ~-supplied-p~ も使える。
+#+begin_src lisp
+  (defun foo (&key (a 0) (b 0 b-supplied-p) (c (+ a b)))
+    (list a b c b-supplied-p))
+#+end_src
+
+#+RESULTS:
+: FOO
+
+#+begin_src lisp :results output
+  (dbg (foo :a 1 :c 3))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO :A 1 :C 3) => (1 0 3 NIL)
+
+#+begin_src lisp :results output
+  (dbg (foo :a 1 :c 3 :b 2))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO :A 1 :C 3 :B 2) => (1 2 3 T)
+
+** 関数の戻り値
+デフォルトでは、関数の最後の式を評価した値が、その関数の戻り値になる。
+アーリーリターンしたい時は、特殊オペレータ ~RETURN-FROM~ が使える。
+~RETURN-FROM~ はブロックから抜けるためのもので、関数と直接関係があるわけではない。
+#+begin_src lisp :eval no
+  (defun foo (n)
+    (dotimes (i 10)
+      (dotimes (j 10)
+        (when (> (* i j) n)
+          (return-from foo (list i j)))))
+#+end_src
+
+** データとしての関数または高階関数
+*** 関数オブジェクトの取得
+Lispでは、関数はオブジェクトの一種でしかない。関数を ~DEFUN~ で定義する時には、実際には2つのことをやっている。
+- 新しい関数オブジェクトの生成
+- そのオブジェクトに名前をつけること
+  関数オブジェクトを得る仕組みは ~FUNCTION~ という特殊オペレータが提供する。
+~FUNCTION~ は引数を1つ取り、引数の名前を持つ関数オブジェクトを返す。
+#+begin_src lisp :results output
+  (defun foo (x) (* 2 x))
+  (dbg (function foo))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] #'FOO => #<FUNCTION FOO>
+
+また、 ~#'~ と書くことで、 ~FUNCTION~ と同じ効果を得られる。
+#+begin_src lisp
+  #'foo
+#+end_src
+
+#+RESULTS:
+: #<FUNCTION FOO>
+
+*** 関数オブジェクトの起動
+関数オブジェクトを手に入れたら、それを起動する必要がある。起動の仕方は2種類ある
+- ~FUNCALL~
+- ~APPLY~
+両者は、呼び出す関数への引数の渡し方に違いがある。
+
+**** FUNCALL
+~FUNCALL~ は、渡す引数の個数が静的に判明しているときに使う。
+#+begin_src lisp :results output
+  (dbg (foo 2))
+  (dbg (funcall #'foo 2))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (FOO 2) => 4
+: [DEBUG] (FUNCALL #'FOO 2) => 4
+
+#+begin_src lisp :results output
+  (defun plot (fn min max step)
+    (loop for i from min to max by step do
+      (loop repeat (funcall fn i) do (format t "*"))
+      (format t "~%")))
+  (plot #'exp 0 4 1/2)
+#+end_src
+
+#+RESULTS:
+: *
+: **
+: ***
+: *****
+: ********
+: *************
+: *********************
+: **********************************
+: *******************************************************
+
+**** APPLY
+~FUNCALL~ は、引数リストが実行時にしかわからない場合には使いづらい。
+そのような場合には、引数リストをそのまま渡せる ~APPLY~ を使う。
+#+begin_src lisp :eval no
+  (apply #'plot plot-data)
+#+end_src
+
+~APPLY~ は、適用される関数のとる引数が ~&optional~ なのか ~&rest~ なのか ~&key~ なのかは気にしない。
+引数の数だけ気にする。
+
+** 無名関数
 
