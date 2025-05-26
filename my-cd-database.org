@@ -2,7 +2,7 @@
 #+begin_src lisp
   (defmacro dbg (expr)
   `(let ((result ,expr))
-     (format t "~&[DEBUG] ~S => ~S~%" ',expr result)
+     (format t "~&~S => ~S~%" ',expr result)
      result))
 #+end_src
 
@@ -17,7 +17,7 @@
 
 #+RESULTS:
 : Hello, world
-: [DEBUG] (HELLO-WORLD) => NIL
+: (HELLO-WORLD) => NIL
 
 * 第3章 実践:簡単なデータベース
 ** CDの曲を管理する簡単なデータベースを作成する。
@@ -434,18 +434,22 @@ Common Lispには、等価性を判定する述語が型ごとに用意されて
 
 Lispオブジェクト全般に使える、等価性判定の総称的な述語が4つある
 - EQ
+  - シンボル用。
   - 「オブジェクト同一性」(object identity)を比較する。
   - ただし数や文字のオブジェクト同一性は、処理系でそれらの型がどのように実装されているかに依存する
   - 数値や文字になり得る値の比較には、 ~EQ~ を使うべきではない。
 - EQL
+  - シンボル・数値・文字用。
   - ~EQL~ は ~EQ~ と同じようにオブジェクト同一性を判定する述語だが、同じ数値や文字の値を表している同じクラスの
     同じオブジェクトは、常に等しいと判定されると保証されている
   - 色々なスタイルがあるが、この本では *比較には常に ~EQL~ を使う* 。
 - EQUAL
+  - なんでも用。直感的。
   - ~EQL~ より等価性の判定基準が甘く、異なるオブジェクトでも等しいとみなされる
   - 文字列や配列、パス名について、ぱっと見で等しそうなら真になる。
   - その他のデータ型については ~EQL~ を使って判定される。
 - EQUALP
+  - なんでも用。かなりざっくり判定。
   - ~EQUAL~ よりさらに判定基準が甘い。
   - 文字列は、大文字小文字の違いがあっても等しいとみなされる
   - 数値は、数学的に同じなら等しいとみなされる。 ~(equalp 1 1.0)~ は真。
@@ -813,8 +817,8 @@ Common Lispには *ダイナミック変数* が用意されている。
   (defparameter *gap-tolerance* 0.001 "部品間の隙間の許容幅")
 #+end_src
  ~DEFPARAMETER~ では評価されるたびに常に初期値を代入するが、 ~DEFVAR~ は変数が未定義だった場合のみ初期値を代入する。
- 変数を定義するとき、その変数を使うソースコードを変更したとしても維持しておきたいデータには、 ~DEFVAR~ を使うべきだ。
- ソースコードに直接影響するようなパラメータなら、 ~DEFPARAMETER~ が適切だ。
+ 変数を定義するとき、その変数を使うソースコードを変更したとしても維持しておきたいデータには、 ~DEFVAR~ を使う。
+ ソースコードに直接影響するようなパラメータなら、 ~DEFPARAMETER~ が適切。
 
  ダイナミック変数には、一般的なグローバル変数とは異なる性質がある。
  ダイナミック変数を ~LET~ フォームや関数のパラメータなどで束縛すると、その束縛フォームが続いている間は、
@@ -1013,3 +1017,529 @@ Common Lispでは、配列やハッシュテーブル、リストといったど
     "省略可能なドキュメンテーション文字列"
     body-form*)
 #+end_src
+
+* 第11章 コレクション
+** ベクタ
+シーケンスのサブタイプで、リストの兄弟。固定サイズと可変サイズがある。
+
+*** VECTOR関数
+固定サイズのベクタは ~VECTOR~ 関数で作ることができる。 ~VECTOR~ は任意個の引数をとり、
+引数で与えた要素を含む固定サイズのベクタを新しく確保する。
+#+begin_src lisp :results output
+  (dbg (vector 1 2 3))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (VECTOR 1 2 3) => #(1 2 3)
+
+このように、ベクタのリテラル表記は ~#(...)~ となる。
+ベクタのリテラルオブジェクトに変更を加えた場合の動作は定義されていないので、リテラル表記ではなく ~VECTOR~ 関数でベクタを生成するべき。
+
+*** MAKE-ARRAY関数
+~MAKE-ARRAY~ は ~VECTOR~ よりも汎用の関数で、固定サイズと可変サイズの両方のベクタを作れる。
+引数として、配列の次元を表すリストを受け取る。
+#+begin_src lisp
+  (make-array 5 :initial-element nil)
+#+end_src
+
+#+RESULTS:
+| NIL | NIL | NIL | NIL | NIL |
+
+可変長のベクタを作るには、 ~fill-pointer~ 引数を渡す。
+次の ~MAKE-ARRAY~ 呼び出しは5つのcapacityを持つが、フィルポインタが0のためlengthが空っぽであるように見える。
+#+begin_src lisp :results output
+  (dbg (make-array 5 :fill-pointer 0))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (MAKE-ARRAY 5 :FILL-POINTER 0) => #()
+
+可変ベクタの末尾に要素を追加するには、 ~VECTOR-PUSH~ を使う。これはフィルポインタの値をインクリメントして、追加した要素のインデックスを返す。
+~VECTOR-POP~ は、最後に追加された要素を返し、フィルポインタの値をデクリメントする。
+
+#+begin_src lisp :results output
+  (defparameter *x* (make-array 5 :fill-pointer 0))
+
+  (dbg (vector-push 'a *x*))
+  (dbg (vector-push 'b *x*))
+  (dbg (vector-push 'c *x*))
+  (dbg *x*)
+  (dbg (vector-pop *x*))
+  (dbg (vector-pop *x*))
+  (dbg (vector-pop *x*))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (VECTOR-PUSH 'A *X*) => 0
+: [DEBUG] (VECTOR-PUSH 'B *X*) => 1
+: [DEBUG] (VECTOR-PUSH 'C *X*) => 2
+: [DEBUG] *X* => #(A B C)
+: [DEBUG] (VECTOR-POP *X*) => C
+: [DEBUG] (VECTOR-POP *X*) => B
+: [DEBUG] (VECTOR-POP *X*) => A
+
+
+上限がない、capacityが自動で大きくなるようなベクタを作るには、 ~MAKE-ARRAY~ にキーワード引数 ~:adjustable~ を追加する。
+可変ベクタに要素を追加するには、 ~VECTOR-PUSH-EXTEND~ を使う。
+
+#+begin_src lisp :results output
+  (defparameter *x* (make-array 1 :fill-pointer 0 :adjustable t))
+
+  (dbg (vector-push-extend 'a *x*))
+  (dbg (vector-push-extend 'b *x*))
+  (dbg (vector-push-extend 'c *x*))
+  
+  (dbg *x*)
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (VECTOR-PUSH-EXTEND 'A *X*) => 0
+: [DEBUG] (VECTOR-PUSH-EXTEND 'B *X*) => 1
+: [DEBUG] (VECTOR-PUSH-EXTEND 'C *X*) => 2
+: [DEBUG] *X* => #(A B C)
+
+*** 特殊ベクタ
+これまで出てきたベクタは任意の型のオブジェクトを持つことができる汎用のベクタだった。
+Common Lispでは、要素の型をある特定の型に制限した ~特殊ベクタ~ を作ることもできる。
+
+文字列は特殊ベクタの一種。 ~MAKE-ARRAY~ にキーワード引数 ~:element-type~ を与えるとベクタの要素の型指定が
+できるが、ここに ~CHARACTER~ を指定すれば文字列になる。
+#+begin_src lisp :results output
+   (dbg (make-array 5 :fill-pointer 0 :adjustable t :element-type 'character))
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (MAKE-ARRAY 5 :FILL-POINTER 0 :ADJUSTABLE T :ELEMENT-TYPE 'CHARACTER) => ""
+                        
+*** シーケンスとしてのベクタ
+シーケンス関数について。
+
+長さを返す ~LENGTH~ と要素を取得する ~ELT~ (elementの略)
+#+begin_src lisp :results output
+  (defparameter *x* (vector 1 2 3))
+  (defparameter *hello* "hello world")
+
+  (dbg (length *x*))
+  (dbg (length *hello*))
+
+  (dbg (elt *x* 0))
+  (dbg (elt *x* 1))
+  (setf (elt *x* 0) 100)
+  (dbg *x*)
+
+  (dbg (elt *hello* 0))
+  (setf (elt *hello* 0) #\H)
+  (dbg *hello*)
+#+end_src
+
+#+RESULTS:
+: [DEBUG] (LENGTH *X*) => 3
+: [DEBUG] (LENGTH *HELLO*) => 11
+: [DEBUG] (ELT *X* 0) => 1
+: [DEBUG] (ELT *X* 1) => 2
+: [DEBUG] *X* => #(100 2 3)
+: [DEBUG] (ELT *HELLO* 0) => #\h
+: [DEBUG] *HELLO* => "Hello world"
+
+シーケンス反復関数
+~COUNT~, ~FIND~, ~POSITION~, ~REMOVE~, ~SUBSTITUTE~
+#+begin_src lisp :results output
+  (dbg (count 1 #(1 2 1 2 3 1 2 3 4)))
+
+  (dbg (remove 1 '(1 2 1 2 3 1 2 3 4)))
+  (dbg (remove #\a "foobarbaz"))
+
+  (dbg (substitute 10 1 #(1 2 1 2 3 1 2 3 4)))
+  (dbg (substitute #\x #\b "foobarbaz"))
+
+  (dbg (find 1 '(1 2 1 2 3 1 2 3 4)))  ; 値が見つかればその値を返す(tとして)
+
+  (dbg (position 1 #(1 2 1 2 3 1 2 3 4)))
+#+end_src
+
+#+RESULTS:
+: (COUNT 1 #(1 2 1 2 3 1 2 3 4)) => 3
+: (REMOVE 1 '(1 2 1 2 3 1 2 3 4)) => (2 2 3 2 3 4)
+: (REMOVE #\a "foobarbaz") => "foobrbz"
+: (SUBSTITUTE 10 1 #(1 2 1 2 3 1 2 3 4)) => #(10 2 10 2 3 10 2 3 4)
+: (SUBSTITUTE #\x #\b "foobarbaz") => "fooxarxaz"
+: (FIND 1 '(1 2 1 2 3 1 2 3 4)) => 1
+: (POSITION 1 #(1 2 1 2 3 1 2 3 4)) => 0
+
+シーケンス反復関数には各種キーワード関数を指定することができる。
+~:test~ ... パラメータで渡した値とシーケンスの要素との比較に使う2引数関数を指定する
+~:key~ ... 実際のシーケンスの要素から、キーを取り出すための1引数関数
+~:start~, ~:end~ ... シーケンス反復関数の適用範囲を制限する
+~:from-end~ ... シーケンス関数の適用を逆順(末尾から)にする
+~:count~ ... ~REMOVE~ と ~SUBSTITUTE~ の時、この操作を実行する上限数を表す。 ~NIL~ ならすべてを意味する。デフォルトで ~NIL~ 。
+#+begin_src lisp :results output
+  (dbg (count "foo" #("foo" "bar" "baz") :test #'string=)) ;テスト関数にstring=を指定
+  (dbg (find 'a #((a 10) (b 20) (c 30) (a 100)) :key #'first)) ;シーケンスの要素のfirstに対してfind
+  (dbg (find 'a #((a 10) (b 20) (c 30) (a 100)) :key #'first :from-end t)) ;さらに、逆順でfind
+  (dbg (remove #\a "ababab" :count 2)) ;最大2個までremoveする
+#+end_src
+
+#+RESULTS:
+: (COUNT "foo" #("foo" "bar" "baz") :TEST #'STRING=) => 1
+: (FIND 'A #((A 10) (B 20) (C 30) (A 100)) :KEY #'FIRST) => (A 10)
+: (FIND 'A #((A 10) (B 20) (C 30) (A 100)) :KEY #'FIRST :FROM-END T) => (A 100)
+: (REMOVE #\a "ababab" :COUNT 2) => "bbab"
+
+
+これらシーケンス反復関数それぞれについて、 ~<FUNCTION>-IF~ と ~<FUNCTION>-IF-NOT~ という高階関数の亜種が用意されている。
+IFがついた方はテスト関数を受け取り、それが真を返す要素に対してのみ、countやfindやsubstituteを行う。
+IF-NOTの方もテスト関数を受け取るが、それが偽を返す要素に対してのみ、countやfindやsubstituteを行う。
+#+begin_src lisp :results output
+  (dbg (count-if #'evenp #(1 2 3 4 5)))
+
+  (dbg (position-if #'digit-char-p "abcd0001"))
+
+  (dbg (remove-if-not #'(lambda (x) (char= (elt x 0) #\f)) #("foo" "bar" "baz" "foom")))
+  ;; ("foo" "bar" "baz" "foom").filter(|x| x.first.is_char())
+  ;; remove-if-not は、つまりFilterのこと。よく使う。
+#+end_src
+
+#+RESULTS:
+: (COUNT-IF #'EVENP #(1 2 3 4 5)) => 2
+: (POSITION-IF #'DIGIT-CHAR-P "abcd0001") => 4
+: (REMOVE-IF-NOT #'(LAMBDA (X) (CHAR= (ELT X 0) #\f)) #("foo" "bar" "baz" "foom")) => #("foo"
+:                                                                                       "foom")
+
+*** ソートとマージ
+シーケンスをソートする関数は ~SORT~ と ~STABLE-SORT~ の2種類ある。いずれも、シーケンスと述語の2つの引数を取る。
+#+begin_src lisp :results output
+  (dbg (sort (vector "foo" "bar" "baz") #'string<))
+#+end_src
+
+#+RESULTS:
+: (SORT (VECTOR "foo" "bar" "baz") #'STRING<) => #("bar" "baz" "foo")
+
+~STABLE-SORT~ は、述語によって等価だと判断された要素同士の順序が入れ替わらない。元の順序が保存される。
+
+ソート関数は破壊的関数の代表例で、引数のシーケンスを変更してしまう。よって、引数を利用せずに返り値を利用すること。
+#+begin_src lisp :eval no
+  ;; (sort my-sequence #'string<) 🙅
+  
+  (setf my-sequence (sort my-sequence #'string<)) 🙆
+#+end_src
+
+~MERGE~ 関数は2つのシーケンスと述語をとり、2つのシーケンスを述語に照らしつつマージする。
+第1引数には生成されるシーケンスの型を指定する。
+#+begin_src lisp :results output
+  (dbg (merge 'vector #(1 3 5) #(2 4 6) #'<))
+  (dbg (merge 'list #(1 3 5) #(2 4 6) #'<))
+#+end_src
+
+#+RESULTS:
+: (MERGE 'VECTOR #(1 3 5) #(2 4 6) #'<) => #(1 2 3 4 5 6)
+: (MERGE 'LIST #(1 3 5) #(2 4 6) #'<) => (1 2 3 4 5 6)
+
+*** 部分シーケンス操作
+既存のシーケンスの部分シーケンスを操作するための関数がいくつかある。一番基本的なのは ~SUBSEQ~ 。
+PythonやRustのスライスに似た感じ。
+#+begin_src lisp :results output
+  (dbg (subseq "foobarbaz" 3))
+  (dbg (subseq "foobarbaz" 3 6))
+#+end_src
+
+#+RESULTS:
+: (SUBSEQ "foobarbaz" 3) => "barbaz"
+: (SUBSEQ "foobarbaz" 3 6) => "bar"
+
+シーケンスの中から部分シーケンスを検索するには ~SEARCH~ 関数を使う。
+#+begin_src lisp :results output
+  (dbg (search "bar" "foobarbaz"))
+#+end_src
+
+#+RESULTS:
+: (SEARCH "bar" "foobarbaz") => 3
+
+*** シーケンス述語
+シーケンス全体に適用して真偽を評価するための述語関数が4つある。
+~EVERY~, ~SOME~, ~NOTANY~, ~NOTEVERY~.
+
+いずれも第1引数が述語で、残りの引数がシーケンスになる。
+第1引数の述語は、残りの引数であるシーケンスの数と同じ数の引数を取るものでなければならない。
+シーケンスの要素を全て使い果たすか、全体の終了条件を満たすまで、述語にはシーケンスの要素が1つずつ渡される。
+
+#+begin_src lisp :results output
+  (dbg (every #'evenp #(1 2 3 4 5)))
+  (dbg (some #'evenp #(1 2 3 4 5)))
+  (dbg (notany #'evenp #(1 2 3 4 5)))
+  (dbg (notevery #'evenp #(1 2 3 4 5)))
+  (terpri)
+  (dbg (every #'> #(1 2 3 4) #(5 4 3 2)))
+  (dbg (some #'> #(1 2 3 4) #(5 4 3 2)))
+  (dbg (notany #'> #(1 2 3 4) #(5 4 3 2)))
+  (dbg (notevery #'> #(1 2 3 4) #(5 4 3 2)))
+  #+end_src
+
+  #+RESULTS:
+  : (EVERY #'EVENP #(1 2 3 4 5)) => NIL
+  : (SOME #'EVENP #(1 2 3 4 5)) => T
+  : (NOTANY #'EVENP #(1 2 3 4 5)) => NIL
+  : (NOTEVERY #'EVENP #(1 2 3 4 5)) => T
+  : 
+  : (EVERY #'> #(1 2 3 4) #(5 4 3 2)) => NIL
+  : (SOME #'> #(1 2 3 4) #(5 4 3 2)) => T
+  : (NOTANY #'> #(1 2 3 4) #(5 4 3 2)) => NIL
+  : (NOTEVERY #'> #(1 2 3 4) #(5 4 3 2)) => T
+
+*** シーケンスマッピング関数
+~MAP~ は上記シーケンス述語関数に似ていて、N個の引数を取る関数とN個のシーケンスを受け取る。
+しかし ~MAP~ は真偽値ではなく、シーケンスの各要素に関数を適用した結果を含む新しいシーケンスを返す。
+~CONCATENATE~ や ~MERGE~ のように、どんな種類のシーケンスを作るのか指定する必要がある。
+#+begin_src lisp :results output
+  (dbg (map 'vector #'* #(1 2 3 4 5) #(10 9 8 7 6)))
+#+end_src
+
+#+RESULTS:
+: (MAP 'VECTOR #'* #(1 2 3 4 5) #(10 9 8 7 6)) => #(10 18 24 28 30)
+
+~MAP-INTO~ というのもあり、これは新しいシーケンスを生成するのではなく、第1引数として渡したシーケンスに値を設定する。
+
+もちろん、 ~REDUCE~ もある。アキュムレータはキーワード引数 ~:initial-value~ で設定する。
+#+begin_src lisp :results output
+  (dbg (reduce #'+ #(1 2 3 4 5 6 7 8 9 10) :initial-value 45))
+#+end_src
+
+#+RESULTS:
+: (REDUCE #'+ #(1 2 3 4 5 6 7 8 9 10) :INITIAL-VALUE 45) => 100
+
+** ハッシュテーブル
+引数なしの ~MAKE-HASH-TABLE~ は、キーの等価を ~EQL~ によって判定するタイプのハッシュテーブルを作成する。
+これはキーとして文字列を使う場合には問題になる。 ~EQL~ では2つの文字列が同じ内容か判別できない。
+キーワード引数 ~:test~ に シンボル ~EQUAL~ を渡すと、 ~EQUAL~ によって判定するタイプのハッシュテーブルを作成できる。
+
+ハッシュテーブルの要素にアクセスするには ~GETHASH~ 関数を使う。
+#+begin_src lisp :results output
+  (defparameter *h* (make-hash-table))
+
+  (dbg (gethash 'foo *h*))
+  (dbg (setf (gethash 'foo *h*) 'quux))
+  (dbg (gethash 'foo *h*))
+  #+end_src
+
+  #+RESULTS:
+  : (GETHASH 'FOO *H*) => NIL
+  : (SETF (GETHASH 'FOO *H*) 'QUUX) => QUUX
+  : (GETHASH 'FOO *H*) => QUUX
+
+~GETHASH~ は多値を返却する。多値を利用するための ~MULTIPLE-VALUE-BIND~ マクロが提供されている。
+#+begin_src lisp :results output
+  ;; 直前のコードブロックに依存
+  (defun show-value (key hash-table)
+    (multiple-value-bind (value present) (gethash key hash-table)
+        (if present
+              (format nil "Value ~a actually present." value)
+              (format nil "Value ~a because key not found." value))))
+
+  (setf (gethash 'bar *h*) nil) ;NILを設定
+
+  (dbg (show-value 'foo *h*))
+  (dbg (show-value 'bar *h*))
+  (dbg (show-value 'baz *h*))
+  #+end_src
+
+  #+RESULTS:
+  : (SHOW-VALUE 'FOO *H*) => "Value QUUX actually present."
+  : (SHOW-VALUE 'BAR *H*) => "Value NIL actually present."
+  : (SHOW-VALUE 'BAZ *H*) => "Value NIL because key not found."
+
+
+~REMHASH~ 関数でキーと値のペアを削除できるほか、 ~CLRHASH~ でハッシュテーブルを空にできる。
+
+*** ハッシュテーブル上の反復
+~MAPHASH~ は ~MAP~ に似た関数で、関数とハッシュテーブルをとり、ハッシュテーブル内のキーと値の各ペアに対して関数を呼び出す。
+#+begin_src lisp :results output
+  (maphash #'(lambda (k v) (format t "key: ~a value: ~a~%" k v)) *h*)
+#+end_src
+
+#+RESULTS:
+: KEY: FOO VALUE: QUUX
+: KEY: BAR VALUE: NIL
+
+#+begin_src lisp :results output
+  (defparameter *t* (make-hash-table))
+
+  (setf (gethash 'zero *t*) 0)
+  (setf (gethash 'ten *t*) 10)
+  (setf (gethash 'hundred *t*) 100)
+
+  (maphash #'(lambda (k v) (format t "key: ~a value: ~a~%" k v)) *t*)
+
+  (terpri)
+
+  (maphash #'(lambda (k v) (when (< v 10) (remhash k *t*))) *t*)
+  (maphash #'(lambda (k v) (format t "key: ~a value: ~a~%" k v)) *t*)
+  #+end_src
+
+#+RESULTS:
+: key: ZERO value: 0
+: key: TEN value: 10
+: key: HUNDRED value: 100
+: 
+: key: TEN value: 10
+: key: HUNDRED value: 100
+
+* 第12章 リスト処理：やつらがLISPと呼ぶ理由
+** 「リストなんてない」
+#+begin_quote
+リストを理解する手がかりは、そのほとんどがより基本的なデータ型のインスタンスであるオブジェクトの上に構築された幻想だと理解することにある。
+#+end_quote
+
+リストは単純なオブジェクト: コンスセルの上に構築されている。
+~CONS~ は2つの引数をとり、それら2つの値を保持する新しいコンスセルを返す。コンスセルは括弧の中に2つの値がドットで区切られたものとして印字される。
+#+begin_src lisp :results output
+  (dbg (cons 1 2))
+#+end_src
+
+#+RESULTS:
+: (CONS 1 2) => (1 . 2)
+
+2つの値には ~CAR~ と ~CDR~ でアクセスする。これらには ~SETF~ できる。
+#+begin_src lisp :results output
+  (dbg (car (cons 1 2)))
+  (dbg (cdr (cons 1 2)))
+  (terpri)
+
+  (defparameter *cons* (cons 1 2))
+  (dbg (setf (car *cons*) 10))
+  (dbg *cons*)
+#+end_src
+
+#+RESULTS:
+: (CAR (CONS 1 2)) => 1
+: (CDR (CONS 1 2)) => 2
+: 
+: (SETF (CAR *CONS*) 10) => 10
+: *CONS* => (10 . 2)
+
+
+ある値がリストであるとは、それが ~NIL~ であるか他のコンスセルへの参照であるということ。
+コンスセルの ~CAR~ はそのリストの最初の要素であり、 ~CDR~ は残りの要素を含む他のリスト（すなわち他のコンスセル、または ~NIL~ ）である。
+Common Lispはこの約束事をわかっているので、このような「コンスセル鎖」をリストとして印字する。
+
+#+begin_src lisp :results output
+  (dbg (cons 1 nil))
+  (dbg (cons 1 (cons 2 nil)))
+  (dbg (cons 1 (cons 2 (cons 3 nil))))
+#+end_src
+
+#+RESULTS:
+: (CONS 1 NIL) => (1)
+: (CONS 1 (CONS 2 NIL)) => (1 2)
+: (CONS 1 (CONS 2 (CONS 3 NIL))) => (1 2 3)
+
+
+~LIST~ 関数は、これらの「コンスセル合成操作」を肩代わりしてくれる。
+#+begin_src lisp :results output
+  (dbg (list 1))
+  (dbg (list 1 2))
+  (dbg (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: (LIST 1) => (1)
+: (LIST 1 2) => (1 2)
+: (LIST 1 2 3) => (1 2 3)
+
+コンスセルではなくリストとして見ている時には、CARやCDRの代わりに ~FIRST~ と ~REST~ という同義語の方が合っている。
+#+begin_src lisp :results output
+  (defparameter *list* (list 1 2 3 4))
+  (dbg (first *list*))
+  (dbg (rest *list*))
+  (dbg (first (rest *list*)))
+#+end_src
+
+#+RESULTS:
+: (FIRST *LIST*) => 1
+: (REST *LIST*) => (2 3 4)
+: (FIRST (REST *LIST*)) => 2
+
+コンスセルはどんな種類の値も保持できる。また、単一のリストに型の異なるオブジェクトを保持することもできる。
+#+begin_src lisp
+  (list "foo" (list 1 2) 10)
+#+end_src
+
+#+RESULTS:
+| foo | (1 2) | 10 |
+
+** リサイクルな関数と構造共有の組み合わせ
+リスト操作関数には、引数のリスト構造の一部を、返り値と共有するような関数(構造共有)が存在する。
+一方で、効率化のために 引数のリストを返り値にリサイクルするような関数もあり、これは構造共有と相性が悪い。
+
+実践では、リサイクルな関数を使うときはお決まりのイディオムに従うことが多い。
+よく利用するイディオムは、ローカル変数に保持されたリストに対して要素を ~PUSH~ していき、関数から返すときに ~NREVERSE~ するというもの。
+#+begin_src lisp :results output
+  (defun upto (max)
+    (let ((result nil))
+      (dotimes (i max)
+        (push i result)) ;PUSH
+      (nreverse result))) ;NREVERSE
+
+  (dbg (upto 10))
+#+end_src
+
+#+RESULTS:
+: (UPTO 10) => (0 1 2 3 4 5 6 7 8 9)
+
+その次によく使われるイディオムは、リサイクルな関数の戻り値を、リサイクルされた値が含まれうる場所に即座に代入し直すというもの。
+例えば、 ~REMOVE~ のリサイクルバージョンである ~DELETE~ を使ったものがある
+#+begin_src lisp :results output
+  (defparameter *foo* (list 1 nil 2 nil 3))
+  (dbg *foo*)
+  (terpri)
+  (setf *foo* (delete nil *foo*))
+  (dbg *foo*)
+#+end_src
+
+#+RESULTS:
+: *FOO* => (1 NIL 2 NIL 3)
+: 
+: *FOO* => (1 2 3)
+
+#+begin_quote
+ リストを操作するときは一般に関数的なスタイルでコードを記述するのがベストだ。
+ 自分が書く関数は引数のリストの内容にだけ依存し、引数を変更しないようにしよう。
+#+end_quote
+
+** リスト操作関数
+- ~SECOND~ から ~TENTH~ まで、序数の名前がついた関数が用意されている
+- 汎用の ~NTH~ はインデックスとリストの2つの引数をとり、そのリストのゼロから数えてn番目の要素を返す。
+- ~CAR~ と ~CDR~ の合成関数が28種類ある。caar, cadr, cadadr... ただこれらの関数はあまり頻繁に利用されない。
+
+
+** マッピング
+シーケンス用の ~MAP~ のほかに、リスト専用のマッピング関数が6つある。
+
+~MAPCAR~ は戻り値が必ずリストになる ~MAP~ 。
+#+begin_src lisp :results output
+  (dbg (mapcar #'(lambda (x) (* 2 x)) (list 1 2 3)))
+  (dbg (mapcar #'+ (list 1 2 3) (list 10 20 30)))
+#+end_src
+
+#+RESULTS:
+: (MAPCAR #'(LAMBDA (X) (* 2 X)) (LIST 1 2 3)) => (2 4 6)
+: (MAPCAR #'+ (LIST 1 2 3) (LIST 10 20 30)) => (11 22 33)
+
+そのほか、
+- ~MAPLIST~ はで関数に渡されるのがリストの要素ではなくコンスセルになる。
+- ~MAPCAN~ と ~MAPCON~ は、それぞれ ~MAPCAR~ と ~MAPLIST~ に似た動作をするが、新しいリストを組み立てるのではなく関数の戻り値を ~NCONC~ で繋ぎ合わせる。
+  - 具体的にいうと、mapcar は関数が返したリストをネストして追加するのに対し、mapcan はリストをネストせずにつなげ合わせる。
+     #+begin_src lisp :results output
+       (dbg (mapcar (lambda (x) (list (+ x 10) 'x)) '(1 2 3 4)))
+       (dbg (mapcan (lambda (x) (list (+ x 10) 'x)) '(1 2 3 4))) 
+     #+end_src
+
+     #+RESULTS:
+     : (MAPCAR (LAMBDA (X) (LIST (+ X 10) 'X)) '(1 2 3 4)) => ((11 X) (12 X) (13 X)
+     :                                                         (14 X))
+     : (MAPCAN (LAMBDA (X) (LIST (+ X 10) 'X)) '(1 2 3 4)) => (11 X 12 X 13 X 14 X)
+
+- ~MAPC~ と ~MAPL~ は実際には制御構文で、いずれも最初のリスト引数をそのまま返す。つまりマップされる関数が副作用を伴う場合に使う。for-eachだね。
+
+参考: https://devnull.hatenablog.jp/entry/2018/04/10/144746
+
+
+* 第13章 リストを超えて: コンスセルの別用途
