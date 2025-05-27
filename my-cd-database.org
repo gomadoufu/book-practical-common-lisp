@@ -1540,6 +1540,119 @@ Common Lispはこの約束事をわかっているので、このような「コ
 - ~MAPC~ と ~MAPL~ は実際には制御構文で、いずれも最初のリスト引数をそのまま返す。つまりマップされる関数が副作用を伴う場合に使う。for-eachだね。
 
 参考: https://devnull.hatenablog.jp/entry/2018/04/10/144746
-
-
+        
 * 第13章 リストを超えて: コンスセルの別用途
+Common Lispには、コンスセルから構成されるデータ構造を、木や集合、ルックアップテーブルとして扱うための関数も用意されている。
+
+** 木
+木構造は、参照しているすべてのコンスセルを含んだバージョンの「リストのリスト」だと考えることができる。
+
+「参照しているすべてのコンスセル」を含むか含まないかは、構造を複製するときに差異となって生じる。
+~COPY-LIST~ 関数はメインのコンスセルのみをコピーし、参照しているコンスセルはコピーしない(ポインタを作成するだけ)。
+一方 ~COPY-TREE~ 関数は参照しているコンスセルを含めて全てをコピーする(実体として複製する)。
+
+~TREE-EQUAL~ は、木の構造が同じであり、かつ、葉が ~EQL~ によって等価とみなせるなら、真を返す。
+
+これら以外で木を前提とした関数としては、シーケンス関数(~SUBSTITUTE~ や ~NSUBSTITUTE~ など)の木構造バージョンがある。
+
+** 集合
+どんなリストでも、集合として扱うことができる。Common Lispにはリストに対して集合論的な操作をする関数が備わっている。
+ただしこれらの操作は、効率が良くない。
+
+集合を組み立てるには ~ADJOIN~ 関数を使う。引数には集合に加えたいアイテムと、集合を表すリストをとり、アイテムを加えた新しい集合を返す。オリジナルのリストは変更しない。
+モディファイマクロ ~PUSHNEW~ は、 ~ADJOIN~ の返り値を、リストの場所に ~setf~ したような動きをする。
+
+集合に、あるアイテムが含まれているかどうかは ~MEMBER~, ~MEMBER-IF~, ~MEMBER-IF-NOT~ によってテストできる。
+
+集合演算もサポートされていて、 ~INTERSECTION~, ~UNION~, ~SET-DIFFERENCE~, ~SET-EXCLUSIVE-OR~ が揃っている。これらの関数すべてに、先頭にNがつくリサイクルバージョンの関数がある。
+
+** ルックアップテーブル : 連想リストと属性リスト
+キーと値を対応させるテーブルもコンスセルから構築することができる。
+コンスセルをベースとしたルックアップテーブルとしては、連想リスト(association list, alist)と属性リスト(property list, plist)の2種類ある。
+大きなテーブルが欲しければハッシュテーブルを使った方がいいが、小さなテーブルとしてはこれらは便利に使える。
+
+*** 連想リスト
+連想リストは、各要素がキーと値のペアを表現したコンスセルを持っているようなリストになっている。
+プリントすると、 ~((A . 1) (B . 2) (C . 3))~ のように印字される。
+
+~ASSOC~ は連想リストのルックアップ関数で、キーと連想リストを引数に取る。最初にキーと一致したコンスセルを返す。
+~:key~ や ~:test~ のキーワード関数も使える。
+#+begin_src lisp :results output
+  (defparameter *a* '((a . 1) (b . 2) (c . 3)))
+  (dbg (assoc 'a *a*))
+  (dbg (assoc 'c *a*))
+  (dbg (assoc 'd *a*))
+  (terpri)
+  (dbg (cdr (assoc 'a *a*))) ;値を取り出す
+#+end_src
+
+#+RESULTS:
+: (ASSOC 'A *A*) => (A . 1)
+: (ASSOC 'C *A*) => (C . 3)
+: (ASSOC 'D *A*) => NIL
+: 
+: (CDR (ASSOC 'A *A*)) => 1
+
+連想リストの前に要素を追加するには、 ~CONS~ または ~ACONS~ を用いる。
+#+begin_src lisp :results output
+  (dbg (cons (cons 'new-key 'new-value) *a* ))
+  (dbg (acons 'new-key 'new-value *a*))
+#+end_src
+
+#+RESULTS:
+: (CONS (CONS 'NEW-KEY 'NEW-VALUE) *A*) => ((NEW-KEY . NEW-VALUE) (A . 1) (B . 2)
+:                                           (C . 3))
+: (ACONS 'NEW-KEY 'NEW-VALUE *A*) => ((NEW-KEY . NEW-VALUE) (A . 1) (B . 2)
+:                                     (C . 3))
+
+連想リストを変更するには上記関数を ~setf~ と組み合わせるか、 ~PUSH~ を使う。
+#+begin_src lisp :results output
+  (dbg (push (cons 'new-key 'new-value) *a*))
+  (dbg *a*)
+#+end_src
+
+#+RESULTS:
+: (PUSH (CONS 'NEW-KEY 'NEW-VALUE) *A*) => ((NEW-KEY . NEW-VALUE) (A . 1) (B . 2)
+:                                           (C . 3))
+: *A* => ((NEW-KEY . NEW-VALUE) (A . 1) (B . 2) (C . 3))
+
+~COPY-ALIST~ 関数で連想リストのコピーができる。
+~PAIRLIS~ 関数は、キーのリストと値のリストから、1つの連想リストを作ることができる。
+
+*** 属性リスト
+属性リストはキーと値が交互に並んでいるもので、構造としては普通のリストと何も変わらない。
+連想リストでいう ~((A . 1) (B . 2) (C . 3))~ は属性リストでは ~[A 1 B 2 C 3]~ となる。
+
+属性リストをルックアップする関数は ~GETF~ しかない。
+~SETF~ と ~GETF~ を組み合わせれば、あるキーに対応する値を設定することができる。
+#+begin_src lisp :results output
+  (defparameter *plist* ())
+  (dbg *plist*)
+  (setf (getf *plist* :a) 1)
+  (dbg *plist*)
+  (setf (getf *plist* :a) 2)
+  (dbg *plist*)
+#+end_src
+
+#+RESULTS:
+: *PLIST* => NIL
+: *PLIST* => (:A 1)
+: *PLIST* => (:A 2)
+
+属性リストからキーと値のペアを取り除くには、 ~REMF~ マクロを使う。
+#+begin_src lisp :results output
+  (dbg (remf *plist* :a))
+  (dbg *plist*)
+#+end_src
+
+#+RESULTS:
+: (REMF *PLIST* :A) => T
+: *PLIST* => NIL
+
+~GET-PROPERTIES~ という、一つの属性リストから複数の属性を取り出せる関数もある。
+
+Common Lispでは、どんなシンボルオブジェクトにも専用の属性リストがあって、そのシンボルについての情報を格納するために使うことができる。
+その属性リストは ~SYMBOL-PLIST~ 関数によって取得でき、また特定の属性についてはキーを引数に取る ~GET~ 関数で取得できる。
+シンボルの属性リストからある属性を取り除きたかったら、 ~REMPROP~ を使う。
+
+
