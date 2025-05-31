@@ -1509,7 +1509,6 @@ Common Lispはこの約束事をわかっているので、このような「コ
 - 汎用の ~NTH~ はインデックスとリストの2つの引数をとり、そのリストのゼロから数えてn番目の要素を返す。
 - ~CAR~ と ~CDR~ の合成関数が28種類ある。caar, cadr, cadadr... ただこれらの関数はあまり頻繁に利用されない。
 
-
 ** マッピング
 シーケンス用の ~MAP~ のほかに、リスト専用のマッピング関数が6つある。
 
@@ -1543,7 +1542,6 @@ Common Lispはこの約束事をわかっているので、このような「コ
         
 * 第13章 リストを超えて: コンスセルの別用途
 Common Lispには、コンスセルから構成されるデータ構造を、木や集合、ルックアップテーブルとして扱うための関数も用意されている。
-
 ** 木
 木構造は、参照しているすべてのコンスセルを含んだバージョンの「リストのリスト」だと考えることができる。
 
@@ -1655,4 +1653,208 @@ Common Lispでは、どんなシンボルオブジェクトにも専用の属性
 その属性リストは ~SYMBOL-PLIST~ 関数によって取得でき、また特定の属性についてはキーを引数に取る ~GET~ 関数で取得できる。
 シンボルの属性リストからある属性を取り除きたかったら、 ~REMPROP~ を使う。
 
+* 第14章 ファイルとファイルI/O
+Common Lispではファイルを扱うために、ストリームの抽象と、OS独自のファイル名の扱いを処理するための抽象が用意されている。
 
+** ファイルオープン
+~OPEN~ 関数でファイルの内容を読むストリームを得ることができる。ストリームを閉じるには ~CLOSE~ を使う。
+1文字読み込む ~READ-CHAR~ や、行を読み込んで行末文字をのぞいた文字列を返す ~READ-LINE~ や、S式を読み込みLispオブジェクトを返す ~READ~ などが、入力ストリームを受け付ける。
+
+ファイルの最初の行を印字するには、以下のようにする。
+#+begin_src lisp :results output
+ (let ((in (open "./practical-common-lisp.org")))
+   (format t "~a~%" (read-line in))
+   (close in))
+#+end_src
+
+#+RESULTS:
+: **実践Common  lisp**
+
+読み込みに失敗した場合、 ~OPEN~ 関数と ~READ-*~ 関数はデフォルトでエラーを通知する。例外をハンドリングすることもできるが、追加の引数を渡すことで、例外が発生した時の関数の振る舞いを帰ることができる。
+存在しないファイルを開こうとしたときにエラーを通知しないようにするには、 ~:if-does-not-exist~ を使って異なる挙動を支持できる。デフォルトの ~:error~ と、エラーの代わりにファイルを作成する ~:create~ 、NILを返す ~NIL~ から選べる。
+ファイルの全行を印字するには、:if-does-not-existにNILをつけて次のようにする。
+#+begin_src lisp :results output
+ (let ((in (open "./my-cds.db" :if-does-not-exist nil)))
+   (when in
+     (loop for line = (read-line in nil)
+           while line do (format t "~a~%" line))
+     (close in)))
+#+end_src
+
+#+RESULTS:
+: 
+: ((:TITLE "Perfume The Best 'P Cubed'" :ARTIST "Perfume" :RATING 9 :RIPPED T) (:TITLE "NewJeans 2nd EP 'Get Up'" :ARTIST "NewJeans" :RATING 7 :RIPPED T) (:TITLE "条理加速の片隅、彼女と想像の中身に関する行方 EP" :ARTIST "gaburyu" :RATING 8 :RIPPED T) (:TITLE "懐かしい月は新しい月" :ARTIST "サカナクション" :RATING 10 :RIPPED T) (:TITLE "Sakanaction" :ARTIST "サカナクション" :RATING 10 :RIPPED T) (:TITLE "Beyond The Binary" :ARTIST "星宮とと, SOZEN OTSUBO" :RATING 7 :RIPPED T)) 
+
+
+** 読み込み
+~READ~ はLispのソースを読み込むことができる。 ~PRINT~ と合わせて使えば、ファイルがちょっとしたDBになる。
+
+~READ-SEQUENCE~ は文字ストリームにもバイナリストリームにも使うことができる。この関数にシーケンスとストリームを渡すと、ストリームから読み出したデータでシーケンスを埋めていこうとする。そして、埋められなかった分のシーケンスの最初の要素のインデックスか、埋められた場合はシーケンスの長さを返す。
+~READ-BYTE~ や ~READ-CHAR~ よりも効率がいい。
+
+バイナリデータを読み込むには、 ~OPEN~ の ~:element-type~ 引数に ~'(unsigned-byte 8)~ を渡す。この結果のストリームは、 ~READ-BYTE~ 関数に渡すことができる。
+
+** ファイル出力
+出力ストリームは、キーワード引数 ~:direction~ を ~:output~ にして ~OPEN~ を呼び出せば得られる。
+ファイルを出力用に開くときは、そのファイルはまだ存在していないと仮定する。もし存在していたらエラーを通知するが、この挙動はキーワード引数 ~:if-exists~ によって変えられる。この引数を ~:supersede~ にすると既存のファイルを置き換えるようになる。そのほかに ~:append~ や ~:overwrite~ がある。
+
+データを書き出す関数はいくつかある。 ~WRITE-CHAR~ は1文字をストリームに書き出す。 ~WRITE-LINE~ は行を書き出す。 ~WRITE-STRING~ は文字列を書き出すが、行末文字は書き出さない。 ~WRITE-SEQUENCE~ はまとめ書きもできる。
+
+空行を書き出すには、強制的に改行する ~TERPRI~ (terminate print) や、ストリームが行頭にいるとき以外は改行を印字する ~FRESH-LINE~ が使える。
+
+いくつかの関数はLispのデータをS式として出力する。 ~PRINT~ はS式を改行コードの後に印字し、その後ろにスペースを印字する。 ~PRIN1~ はS式だけを印字する。 ~PPRINT~ はS式をできるだけ美しく印字する。 ~PRINC~ もLispのオブジェクトを印字するが、こちらは人間が読むことを意図している。DebugがPRINCでDisplayがPRINTって感じか。
+
+バイナリデータを書き出すときは、読み込みと同じように ~OPEN~ の ~:element-type~ 引数に ~'(unsigned-byte 8)~ を渡す。
+
+** ファイルクローズ
+~CLOSE~ 関数でストリームを閉じられるが、ほとんど使われない。
+代わりにファイルクローズには ~WITH-OPEN-FILE~ マクロを利用する。このマクロは特殊オペレータ ~UNWIND-PROTECT~ を利用して作られている。
+#+begin_src lisp :noeval
+  (with-open-file (stream-var open-argument*)
+    body-form*)
+#+end_src
+この中では、 ~open-argument~ を引数とした ~OPEN~ で開いたファイルストリームを ~stream-var~ に束縛した状態で、 ~body-form~ が評価される。
+
+クローズも含めて、ファイルから1行読み込むには以下のように書く。
+#+begin_src lisp :results output
+  (with-open-file (stream "./practical-common-lisp.org")
+    (format t "~a~%" (read-line stream)))
+#+end_src
+
+#+RESULTS:
+: **実践Common  lisp**
+
+新しいファイルを作るには以下のようにする。
+#+begin_src lisp :results output
+  (dbg (with-open-file (stream "somefile.txt" :direction :output :if-exists :overwrite)
+     (format stream "Some text.")))
+#+end_src
+
+#+RESULTS:
+: (WITH-OPEN-FILE
+:     (STREAM "somefile.txt" :DIRECTION :OUTPUT :IF-EXISTS :OVERWRITE)
+:   (FORMAT STREAM "Some text.")) => NIL
+
+** パスネームオブジェクト
+WINとMACの間などでのパス名の互換をとるために、Commmon Lispにはパスネームオブジェクトが用意されている。
+歴史的な経緯からパスネームオブジェクトには過剰に複雑な面があるが、必要のない箇所は無視して良い。
+ファイル名が求められる箇所では 文字列・パスネームオブジェクト・ストリーム の3つのうちどれかを使うことができる。これらは ~パスネーム指示子~ と呼ばれる。
+
+名前文字列からパスネームへの変換には ~PATHNAME~ 関数を使う。この関数はパスネーム指示子を受け取り、それと等価なパスネームオブジェクトを返す。
+
+パスネーム(オブジェクト)は、ホスト、デバイス、ディレクトリ、ネーム、タイプ、それにバージョンという6つの要素を使ってファイル名を表現する。
+これらの要素のうち、ディレクトリだけはリスト構造だが、大半はアトミックな値(文字列)になっている。
+*全てのプラットフォームで全ての要素が必要になるわけではない。* 組み込みの実装に任せるか、既存のパスネームから大半の要素を流用すれば良い。
+例えばUnixファイルシステムではディレクトリとネームとタイプだけ使われる。Windowsではそれに加えて、ドライブ名を保持するためにデバイスまたはホストが使われる。
+
+パスネームの個々の要素は、 ~PATHNEMA-DIRECTORY~ や ~PATHNAME-NAME~ 、 ~PATHNAME-TYPE~ といった関数で調べることができる。
+#+begin_src lisp :results output
+  (dbg (pathname-directory (pathname "/Users/gomadoufu/.emacs.d/init.el")))
+  (dbg (pathname-directory (pathname "../../../../.emacs.d/init.el")))
+  (dbg (pathname-name (pathname "/Users/gomadoufu/.emacs.d/init.el")))
+  (dbg (pathname-type (pathname "/Users/gomadoufu/.emacs.d/init.el")))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+(PATHNAME-DIRECTORY (PATHNAME "/Users/gomadoufu/.emacs.d/init.el")) => (:ABSOLUTE
+                                                                        "Users"
+                                                                        "gomadoufu"
+                                                                        ".emacs.d")
+(PATHNAME-DIRECTORY (PATHNAME "../../../../.emacs.d/init.el")) => (:RELATIVE
+                                                                   :UP :UP :UP
+                                                                   :UP
+                                                                   ".emacs.d")
+(PATHNAME-NAME (PATHNAME "/Users/gomadoufu/.emacs.d/init.el")) => "init"
+(PATHNAME-TYPE (PATHNAME "/Users/gomadoufu/.emacs.d/init.el")) => "el"
+#+end_example
+
+パスネームの文字列表現は、 ~#p~ 文字列を続けたものとなっている。
+#+begin_src lisp :results output
+  (dbg (pathname "/foo/bar/baz.txt"))
+#+end_src
+
+#+RESULTS:
+: (PATHNAME "/foo/bar/baz.txt") => #P"/foo/bar/baz.txt"
+
+
+パスネームを名前文字列に戻すには、 ~NAMESTRING~ 関数を使う。亜種として、 ~DIRECTORY-NAMESTRING~ と ~FILE-NAMESTRING~ がある。
+#+begin_src lisp :results output
+  (dbg (namestring #p"/foo/bar/baz.txt"))
+  (dbg (directory-namestring #p"/foo/bar/baz.txt"))
+  (dbg (file-namestring #p"/foo/bar/baz.txt"))
+#+end_src
+
+#+RESULTS:
+: (NAMESTRING #P"/foo/bar/baz.txt") => "/foo/bar/baz.txt"
+: (DIRECTORY-NAMESTRING #P"/foo/bar/baz.txt") => "/foo/bar/"
+: (FILE-NAMESTRING #P"/foo/bar/baz.txt") => "baz.txt"
+
+~MAKE-PATHNAME~ 関数を使って任意のパスネームを作ることができる。
+*ただし移植性のあるプログラムにしたかったら、こんなふうにパスネームをゼロから作ったりしないほうがいい。
+#+begin_src lisp
+  (make-pathname
+     :directory '(:absolute "foo" "bar")
+     :name "baz"
+     :type "txt")
+#+end_src
+
+#+RESULTS:
+: #P"/foo/bar/baz.txt"
+
+パスネームはゼロから作らなくても、 ~MAKE-PATHNAME~ にキーワード引数 ~:defaults~ を指定して、すでにあるパスネームを元に作ることができる。
+例えば以下の式は、.htmlという拡張子を持ち、それ以外の要素はinput-fileと同じパスネームを作る。
+#+begin_src lisp :eval no
+  (make-pathname :type "html" :defaults input-file)
+#+end_src
+
+~MERGE-PATHNAMES~ はパスネームを2つとり、1つめのパスネームの中で ~NIL~ な要素を2爪のパスネームの対応する値で埋めることで、パスネーム同士をマージする。
+
+** ファイルシステムとのやりとり
+パスネーム指示子に対応するファイルがファイルシステム上に存在するかどうかを調べるには、 ~PROBE-FILE~ を使う。
+
+ファイルシステムのファイルを列挙するには ~DIRECTORY~ を使う。
+
+ファイルの削除には ~DELETE-FILE~ を、名前の変更には ~RENAME-FILE~ を使う。
+
+~ENSURE-DIRECTORIES-EXIST~ 関数を使ってディレクトリを作ることができる。
+
+関数 ~FILE-WRITE-DATE~ は、最後にファイルが書き込まれた時間を1900年1月1日のグリニッジ標準時から経過した秒数の形をした数値として返す。 ~FILE-AUTHOR~ はファイルの所有者を返す。
+
+Cのシステムコールへのバインディングライブラリがある！ https://github.com/osicat/osicat?tab=readme-ov-file
+
+** そのほかのI/O
+ファイルストリーム以外にも、Common Lispではたくさんの種類のストリームが提供されている。
+
+文字列ストリーム ~STRING-STREAM~ は、 ~MAKE-STRING-INPUT-STREAM~ と ~MAKE-STRING-OUTPUT-STREAM~ を使って作ることができる。
+~MAKE-STRING-OUTPUT-STREAM~ から文字列を取り出すには ~GET-OUTPUT-STREAM-STRING~ 関数を使う。
+WITH版の ~WITH-INPUT-FROM-STRING~ と ~WITH-OUTPUT-TO-STRING~ があるので、結局こっちの方が便利だったりする。
+#+begin_src lisp
+  (with-input-from-string (s "1.23")
+    (read s))
+#+end_src
+
+#+RESULTS:
+: 1.23
+
+#+begin_src lisp
+  (with-output-to-string (out)
+    (format out "hello, world ")
+    (format out "~s" (list 1 2 3)))
+#+end_src
+
+#+RESULTS:
+: hello, world (1 2 3)
+
+
+そのほかにも、ストリーム同士をつなげる「配管」役として
+- ~BROADCAST-STREAM~
+- ~CONCATENATED-STREAM~
+- ~TWO-WAY-STREAM~
+- ~ECHO-STREAM~
+がある。
+
+ネットワークAPIについては、標準では何も決められていない。
+
+
+* 第15章
