@@ -1857,4 +1857,21 @@ WITH版の ~WITH-INPUT-FROM-STRING~ と ~WITH-OUTPUT-TO-STRING~ があるので�
 ネットワークAPIについては、標準では何も決められていない。
 
 
-* 第15章
+* 第15章 実践：パスネーム可搬ライブラリ
+
+** 実装依存のコードを書く方法
+実装に依存したコードを書くには、*読み込み時条件分岐* を使う。この機構には、変数 ~*FEATURES*~ と2種類の専用シンタックスを使う。
+~*FEATURES*~ はシンボルのリストで、各シンボルが現在の処理系の機能(feature)を示している。featureにはシンボルのものと、式のものがある。
+
+Lispの読み取り機でfeatureを読み込むときには、 ~#+~ および ~#-~ というシンタックスを使う。 ~#+~ に続く機能式が真であれば、読み取り機は続く式を普通に読み込む。そうでなければ無視する。 ~#-~ は機能式が偽の時に読み込み、真の時は無視する。
+
+これらを使って、以下のような処理系ごとに異なる処理をする関数を書ける
+#+begin_src lisp :eval no
+  (defun foo ()
+    #+allegro (do-one-thing)
+    #+sbcl (do-another-thing)
+    #+clisp (something-else)
+    #-(or allegro sbcl clisp) (error "Not implemented"))
+#+end_src
+
+
