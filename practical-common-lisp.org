@@ -889,13 +889,20 @@ Common Lispでは、配列やハッシュテーブル、リストといったど
 * 第7章 マクロ
 マクロはLispに組み込まれた、言語を拡張できる機能。
 
-** WHENとUNLESS
+** WHENとUNLESSとCOND
 #+begin_src lisp :eval no
   (defmacro when (condition &rest body)
    `(if ,condition (progn ,@body)))
 
   (defmacro unless (condition &rest body)
    `(if (not ,condition) (progn ,@body)))
+#+end_src
+
+IFやWHENやUNLESSよりもっと複雑な条件分岐をしたいときは、 ~COND~ マクロが便利。
+#+begin_src lisp :eval no
+  (cond (a (do-x))
+        ((b-somepredicate-p) (do-y)) ;条件部はテスト関数でも可
+        (t (do-z) (do-s) (do-w))) ;条件が真だった時に実行する式は複数かける
 #+end_src
 
 ** DOLISTとDOTIMES
@@ -996,7 +1003,7 @@ Common Lispでは、配列やハッシュテーブル、リストといったど
 
 引数リストを空にすることで、無限ループも書ける。
 ~DO~ の代わりに、 ~LOOP~ マクロを使うこともある。
-
+        
 * 第8章 マクロ：自分で定義しよう
 マクロはあまりにうまく言語に統合されているので関数のように見えるが、マクロは関数とは全く異なるレベルの完全に違う抽象である。
 
@@ -1856,9 +1863,7 @@ WITH版の ~WITH-INPUT-FROM-STRING~ と ~WITH-OUTPUT-TO-STRING~ があるので�
 
 ネットワークAPIについては、標準では何も決められていない。
 
-
 * 第15章 実践：パスネーム可搬ライブラリ
-
 ** 実装依存のコードを書く方法
 実装に依存したコードを書くには、*読み込み時条件分岐* を使う。この機構には、変数 ~*FEATURES*~ と2種類の専用シンタックスを使う。
 ~*FEATURES*~ はシンボルのリストで、各シンボルが現在の処理系の機能(feature)を示している。featureにはシンボルのものと、式のものがある。
@@ -1873,5 +1878,352 @@ Lispの読み取り機でfeatureを読み込むときには、 ~#+~ および ~#
     #+clisp (something-else)
     #-(or allegro sbcl clisp) (error "Not implemented"))
 #+end_src
+
+* 第16章 オブジェクト指向再入門：総称関数
+** 総称関数とクラス
+- 他の多くの言語と同じく、Common Lispもクラス志向
+- クラス階層があり、トップは ~Tクラス~ 。値としての ~T~ とは関係がない。
+- Common Lispは多重継承を許す。
+- 昔、Lispに実装されていたメッセージパッシングと一般的なメソッド呼び出しのシンタックスを統合しようという動きがあり、 ~総称関数~ が生まれた。
+
+** 総称関数とメソッド
+総称関数は抽象的な操作を定義する。定義では、操作の名前とパラメータのリストを指定するが、実装は指定しない。C言語のヘッダみたいなものか。
+#+begin_src lisp
+  (defgeneric draw (shape)
+    (:documentation "スクリーン上に指定された図を描く"))
+#+end_src
+総称関数は、引数としてどんなオブジェクトでも受け入れる。
+総称関数の定義は、メソッドによって提供される。メソッドはクラスではなく総称関数に紐付けられる。ここがJavaやC++と大きく異なる点。
+
+メソッドがどんな種類の引数を扱えるかは、総称関数で定義された必須パラメータがメソッドを定義するときに特定化されることで決まる。
+例えば総称関数 ~draw~ に対し、 ~shape~ パラメータを ~circle~ クラスのインスタンスに特定化したメソッドが定義できる。あるいは、 ~shape~ パラメータを ~traiangle~ クラスのオブジェクトに特定化したメソッドも定義できる。
+#+begin_src lisp :eval no
+  (defmethod draw ((shape circle))
+    ;unimplemented
+    )
+
+  (defmethod draw ((shape triangle))
+    ;unimplemented
+    )
+#+end_src
+総称関数を呼び出すと、渡した引数が各メソッドの引数と比較され、適用可能なメソッドが選ばれる。適用可能なメソッドが複数見つかった場合は、それらのショルが統合されて1つの適用可能なメソッドになる。
+
+メソッドにおいて、どんなオブジェクトが適用可能であるかを指定する方法は2種類ある。通常は特定子としてクラスを指定する。または、 ~EQL~ 特定子という特殊な特定子を利用できる。
+
+** メソッド結合
+メソッドには ~CALL-NEXT-METHOD~ 呼び出しを書くことができる。総称関数は呼び出されると、適用可能なメソッドを組み合わせて実効メソッドを組み立てるが、この際 ~CALL-NEXT-METHOD~ ではメソッド結合が起こる。
+
+#+begin_quote
+  適用可能なメソッドを組み合わせて実行メソッドを組み立てるという概念は、総称関数のコンセプトの肝になるものだ。
+#+end_quote
+
+実効メソッドは3つのステップで作られる。
+1. 総称関数が、実引数に基づいて、適用可能なメソッドのリストを作る。
+2. メソッドの特定子に応じて、適用可能メソッドのリストが並べ替えられる
+3. 並び替えられたリストの順番にメソッドが選ばれ、実効メソッドを作るためにコードが結合される。
+
+特定子がクラスの名前の場合は、メソッドの実引数のクラスがその名前か、またはいずれかのスーパークラスがその名前である場合に適合する。 ~EQL~ 特定子は、引数が特定子と同じオブジェクトの場合のみ適合する。
+2つ以上のパラメータを明示的に特定化したメソッドは *多重メソッド* と呼ばれる。
+
+適用可能なメソッドは実効メソッドとして組み合わされる前に、特定子が詳細なものが前に来るように並び替えられる。典型的なのは、クラスで指定された2つの特定子が異なっている場合に、片方が他方のサブクラスになっている場合で、この場合はサブクラスの名前で特定化している方が、より詳細な特定子だとみなされる。 ~EQL~ 特定子は、クラスで指定されたどの特定子よりも詳細ということになっている。
+
+** 標準メソッド結合
+メソッド結合のデフォルトのアルゴリズムを、 *標準メソッド結合* という。標準メソッド結合では最も特定的なメソッドが最初に実行され、 ~CALL-NEXT-METHOD~ を通じて次に特定的なメソッドに制御が移っていく。
+
+これまでに出てきたメソッドは *基本メソッド* と呼ばれるが、標準メソッド結合ではこのほかに *補助メソッド* として ~:before~, ~:after~, ~:around~ に対応している。 ~:before~ は最も特定的な基本メソッドより前に実行される。このため、 ~:before~ メソッドは実行環境を準備する作業に使うことができる。
+~:after~ メソッドは、全部の基本メソッドが特定度順で実行されたあとに実行される。 ~:around~ メソッドは ~:before~ メソッドよりもさらに前に実行される。 ~:around~ メソッドは自動的にスーパークラスの ~:around~ メソッドや基本メソッドを呼び出すことをしない。
+
+補助メソッドは、便利なシンタックスにすぎず、基本メソッドの結合でできないことができるようになるわけではない。補助メソッドはライブラリに柔軟性を持たせてくれている。
+
+** そのほかのメソッド結合
+標準メソッド結合に加えて、言語使用では ~+,AND,OR,LIST,APPEND,NCONC,MIN,MAX,PROGN~ の9種類の組み込みメソッド結合が定義されている。これらは *単純組み込みメソッド結合* と呼ばれる。単純組み込みメソッド結合では、基本メソッドのコードを1つずつ含む実行メソッド全体を、関数・マクロ・特殊オペレータの呼び出しでくるむ。たとえば ~+~ メソッド結合を使う総称関数は、その基本メソッドが返す全ての結果の総和を返す。
+
+特定のメソッド結合を使った総称関数を定義するには、 ~:method-combination~ オプションを ~DEFGENERIC~ フォームに含める。
+#+begin_src lisp :eval no
+  (defgeneric priority (job)
+    (:documentation "jobが実行される優先度を返す")
+    (:method-combination +))
+#+end_src
+
+
+単純組み込みメソッド結合を使う総称関数では、基本メソッドはメソッド結合の名前で修飾されていなければならない。
+#+begin_src lisp :eval no
+  (defmethod priority + ((job express-job)) 10)
+#+end_src
+
+単純組み込みメソッド結合では、基本メソッドと、 ~:around~ メソッドの2つだけに対応している。
+
+とはいえ、ほとんど標準メソッドで済むとのこと。
+#+begin_quote
+要するに、99%の場合は標準メソッド結合で十分だ。残りの1%農地、さらに99%の場合は、単純組み込みメソッド結合をどれか1つ使って対応できる。どの組み込み結合でも満足できない1%のそのまた1%の場合には、お好きなCommon Lispのリファレンスから ~DEFINE-METHOD-COMBINATION~ を参照すればいい。
+#+end_quote
+
+* 第17章 オブジェクト指向再入門：クラス
+
+** DEFCLASS
+ユーザ定義クラスは ~DEFCLASS~ マクロを使って作ることができる。 ~DEFCLASS~ が担当するのはクラスをデータ型として定義する部分のみで、振る舞いの方は総称関数およびクラスに特定化されたメソッドが担う。
+
+クラスにはデータ型としての3つの側面がある。
+- 名前
+- ほかのクラスとの関係
+- クラスのインスタンスが持つスロット(フィールド・メンバ変数)の名前
+
+#+begin_src lisp :eval no
+  (defclass name (direct-superclass-name*)
+    (slot-specifier*))
+#+end_src
+~direct-superclass-name~ にはスーパークラスを指定する。複数指定することもできる(多重継承)。ひとつも指定しなかった場合、そのクラスは ~STANDARD-OBJECT~ の直接のサブクラスになる。 ~SANDARD-OBJECT~ は ~Tクラス~ のサブクラス。
+
+** スロット指定子
+スロット指定子は、そのクラスのインスタンスの一部となるスロットを定義する。スロットは値を保持できる場所で、 ~SLOT-VALUE~ 関数を使ってアクセスする。 ~SLOT-VALUE~ は引数としてオブジェクトとスロットの名前を取り、与えられたオブジェクトの指定されたスロットの値を返す。この返された値は ~SETF可能~ である。
+#+begin_src lisp
+  (defclass bank-account ()
+    (customer-name
+     balance))
+  (make-instance 'bank-account)
+#+end_src
+
+#+RESULTS:
+: #<BANK-ACCOUNT {10010F67D3}>
+
+このインスタンスのスロットにはまだ値が設定されていないので、読み込むには値を設定する必要がある。
+#+begin_src lisp :results output
+  (defparameter *account* (make-instance 'bank-account))
+  (setf (slot-value *account* 'customer-name) "John Doe")
+  (setf (slot-value *account* 'balance) 1000)
+
+  (dbg (slot-value *account* 'customer-name))
+  (dbg (slot-value *account* 'balance))
+#+end_src
+
+#+RESULTS:
+: (SLOT-VALUE *ACCOUNT* 'CUSTOMER-NAME) => "John Doe"
+: (SLOT-VALUE *ACCOUNT* 'BALANCE) => 1000
+
+** オブジェクトの初期化
+スロットの値をオブジェクト生成時に初期化するのに、3種類の方法が用意されている。
+1. ~DEFCLASS~ のスロット指定子に ~:initarg~ オプションを使って名前を指定しておき、 ~MAKE-INSTANCE~ で初期値を設定する
+2. 同じくスロット指定子に ~:initform~ でLisp式を設定する
+3. ~MAKE-INSTANCE~ の際に裏で呼ばれている総称関数 ~INITIALIZE-INSTANCE~ に対するメソッドを定義して、初期化を制御する
+
+
+#+begin_src lisp :results output
+  (defclass bank-account ()
+    ((customer-name
+      :initarg :customer-name)
+     (balance
+      :initarg :balance
+      :initform 0)))
+
+  (defparameter *account*
+    (make-instance 'bank-account :customer-name "John Doe" :balance 1500))
+  (dbg (slot-value *account* 'customer-name))
+  (dbg (slot-value *account* 'balance))
+#+end_src
+
+#+RESULTS:
+: (SLOT-VALUE *ACCOUNT* 'CUSTOMER-NAME) => "John Doe"
+: (SLOT-VALUE *ACCOUNT* 'BALANCE) => 1500
+
+
+~INITIALIZE-INSTANCE~ に対して ~:after~ メソッドを定義することで、コンストラクタのような独自の初期化機構を追加することができる。
+#+begin_src lisp :results output
+  (defparameter *account-numbers* 0)
+
+  (defclass bank-account ()
+    ((customer-name
+      :initarg :customer-name
+      :initform (error "Must supply a customer name."))
+     (balance
+      :initarg :balance
+      :initform 0)
+     (account-number
+      :initform (incf *account-numbers*))
+     account-type))
+
+  ;; 初期化用の総称関数にカスタムの補助メソッドを定義すると、コンストラクタのように使える
+  (defmethod initialize-instance :after ((account bank-account) &key)
+    (let ((balance (slot-value account 'balance)))
+      (setf (slot-value account 'account-type)
+            (cond
+              ((>= balance 100000) :gold)
+              ((>= balance 50000) :silver)
+              (t :bronze)))))
+
+  (dbg (slot-value (make-instance 'bank-account :customer-name "Sally Sue" :balance 1000) 'account-type))
+  (dbg *account-numbers*)
+  (dbg (slot-value (make-instance 'bank-account :customer-name "Jonh Doe" :balance 100000) 'account-type))
+  (dbg *account-numbers*)
+#+end_src
+
+#+RESULTS:
+: (SLOT-VALUE
+:  (MAKE-INSTANCE 'BANK-ACCOUNT :CUSTOMER-NAME "Sally Sue" :BALANCE 1000)
+:  'ACCOUNT-TYPE) => :BRONZE
+: *ACCOUNT-NUMBERS* => 1
+: (SLOT-VALUE
+:  (MAKE-INSTANCE 'BANK-ACCOUNT :CUSTOMER-NAME "Jonh Doe" :BALANCE 100000)
+:  'ACCOUNT-TYPE) => :GOLD
+: *ACCOUNT-NUMBERS* => 2
+
+
+** アクセサ関数
+他のオブジェクト指向言語と同様に、アクセス関数はクラスとコードを疎結合にする。
+
+balanceスロットの値をを読み込むようなゲッタメソッドを定義すると以下のようになる。拡張性のために、総称関数も定義しておく。
+#+begin_src lisp
+  (defgeneric balance (account))
+
+  (defmethod balance ((account bank-account))
+    (slot-value account 'balance))
+#+end_src
+
+#+RESULTS:
+: #<STANDARD-METHOD COMMON-LISP-USER::BALANCE (BANK-ACCOUNT) {1003EC2703}>
+
+セッタは、 ~SETF関数~ として定義するのが最適。 ~SETF関数~ というのは ~SETF~ マクロを拡張する方法で、関数が設定方法を知っているような保存場所を新しく定義できる。 ~SETF関数~ の名前は2つのシンボルのリストで、シンボル ~SETF~ と設定場所へのアクセス関数の名前からなる。
+例えば、bank-accountのcustomer-nameスロットに値を設定する ~SETF関数~ は次のようにして定義できる。
+#+begin_src lisp
+  (defgeneric (setf customer-name) (value account))
+
+  (defmethod (setf customer-name) (value (account bank-account))
+    (setf (slot-value account 'customer-name) value))
+#+end_src
+
+#+RESULTS:
+: #<STANDARD-METHOD (COMMON-LISP:SETF COMMON-LISP-USER::CUSTOMER-NAME) (T
+:                                                                       BANK-ACCOUNT) {1000CD63C3}>
+
+この定義を評価した後では、以下のような形の式は、
+#+begin_src lisp :eval no
+  (setf (customer-name my-account) "Sally Sue")
+#+end_src
+1つめの引数が"Sally Sue"で2つめの式数がmy-accountの値であるような ~SETF関数~ の呼び出しとしてコンパイルされる。
+ゲッタも書くと、こんな感じ。
+#+begin_src lisp :results output
+  (defgeneric customer-name (account))
+
+  (defmethod customer-name ((account bank-account))
+    (slot-value account 'customer-name))
+
+  (defparameter *acct* (make-instance 'bank-account :customer-name "acct" :balance 60000))
+  (dbg (customer-name *acct*))
+  (terpri)
+  (dbg (setf (customer-name *acct*) "Sally Sue"))
+  (dbg (customer-name *acct*))
+#+end_src
+
+#+RESULTS:
+: (CUSTOMER-NAME *ACCT*) => "acct"
+: 
+: (SETF (CUSTOMER-NAME *ACCT*) "Sally Sue") => "Sally Sue"
+: (CUSTOMER-NAME *ACCT*) => "Sally Sue"
+
+
+これらのアクセサを書くのはそんなに大変ではないが、手で書くのはナンセンス。そこで ~DEFCLASS~ に自動生成させることができる！(最高！)
+~:reader~ オプションに名前を指定するとゲッタを生成してくれる。
+~:writer~ オプションにはリストを渡すことができ、1つめの引数として新しい値をとり、その場所を結果として返す。これは ~SETF関数~ と同じなので、結局 ~SETF関数~ と同じようにかけばいい。
+最後に、これらを両方とも生成する ~:accessor~ オプションと、スロットに説明をつける ~:documentation~ オプジョンが用意されている。
+#+begin_src lisp
+  (defclass bank-account ()
+    ((customer-name
+      :initarg :customer-name
+      :initform (error "Must supply a customer name.")
+      :accessor customer-name
+      :documentation "顧客名")
+     (balande
+       :initarg :balance
+       :initform 0
+       :reader balance)
+     (account-number
+      :initform (incf *account-numbers*))
+     (account-type
+      :reader account-type
+      :documentation "口座種別。 :gold, :silver, :bronzeのいずれか")))
+#+end_src
+
+** WITH-SLOTS と WITH-ACCESSORS
+#+begin_quote
+アクセサ関数を使うとコードはメンテナンスしやすくなるが、まだ冗長だ。そしてクラスの低レベルな振る舞いを実装するメソッドの実装を書いている時には、書き込み関数のないスロットを設定するのに直接アクセスしたいこともあれば、読み込み関数の上に定義されている補助的なメソッドを実行せずにスロットの値を取得したいこともあるだろう。
+#+end_quote
+
+この用途のために、 ~WITH-SLOTS~ と ~WITH-ACCESSORS~ というマクロが役に立つ。どちらもブロックを作り、その中ではスロットをシンプルな変数名で参照できるようになる。 ~WITH-SLOTS~ の方はスロットへの直接アクセスを提供し、 ~WITH-ACCESSORS~ では変数への参照がアクセサメソッドの呼び出しに置き換わる。
+#+begin_src lisp :eval no
+  (defmethod assess-low-balance-penalty ((account bank-account))
+    (with-slots (balance #|スロット名&変数名|#) account
+      (when (< balance *minimum-balance*)
+        (decf balance (* balance .01) #|普通に参照できる|#))))
+#+end_src
+
+balanceの定義で ~:reader~ ではなく ~:accessor~ を使っていたなら、 ~WITH-ACCESSORS~ を使うこともできる。
+#+begin_src lisp :eval no
+  (defmethod merge-accounts ((account1 bank-account) (account2 bank-account))
+    (with-accessors ((balance1 balance)) account1
+      (with-accessors ((balance2 balance)) account2
+        (incf balance1 balance2 #|普通に参照できる|#)
+        (setf balance2 0 #|普通にsetfできる|#))))
+#+end_src
+
+~WITH-SLOTS~ を使うか ~WITH-ACCESSORS~ を使うかの基準は、スロットに直接アクセスするのかアクセサメソッドを使うのかの判断基準と同じ。
+基本は ~WITH-ACCESSORS~ を使う。
+
+
+** 共有スロット、スロットと継承
+スロットに ~:allocation~ オプションを指定すると、値をクラスに格納する ~:class~ かインスタンスに格納する(デフォルト動作) ~:instance~ か選べる。ただし ~:class~ スロットの値も、インスタンス経由でしかアクセスできない。この点はJavaやC++のstaticフィールドとは異なる。 ~:allocation~ はスペースの節約になる程度。
+
+クラスは、振る舞いをスーパークラスから継承するときに、総称関数の機構を使う。スロットもスーパークラスから継承されるが、仕組みは少し違う。
+Common Lispでは *新しいクラスとその全スーパークラスから同じ名前の指定子をすべてマージして、ユニークなスロット名ごとに指定子を1つ生成する。* スロットオプションが別のスロットは別のものとみなす。
+
+** 多重継承
+Common Lispは多重継承をサポートしている。普通はあまり問題にならないが、総称関数の実行メソッドを生成するときに、クラスの特定化がややこしくなる。
+
+クラスにスーパークラスが複数ある場合には、「サブクラスの方がスーパークラスより特定的」というルールだけではメソッドの結合順を並べ替えることができない。そこでルールを1つ追加して、「 ~DEFCLASS~ フォームのリストで先に出てくるものがより特定的」ということになっている。
+ちなみにスロットのマージの際には、同じ名前を持つスロット指定子はすべてマージされるので、同じスロットを何度継承していても問題ない。要するに、 *Common Lispでは菱形継承問題が起きない。*
+
+* 第18章 FORMATの手習い
+
+** 引数
+1つめの引数は出力先
+- T ... ~*STANDARD-OUTPUT*~ の短縮形
+- NIL ... 出力が文字列になって返る
+- ストリーム ... そのストリームに対して出力される
+- フィルポインタ付きの文字列 ... 文字列の最後にフォーマットの出力が追加され、フィルポインタが変更される
+
+2つめの引数は制御文字列。専用のDSLで書く。 *理解のしやすさよりも短く書けることが主眼に置かれている。*
+
+** FORMAT関数の指示子
+*全ての指示子はチルダで始まり、指示子を表す1つの文字で終わる。* この文字は大文字で書いても小文字で書いてもいい。
+
+指示子によっては前置パラメータを取るものがあり、これはチルダのすぐ後にカンマ区切りで置く。
+前置パラメータは数値か、シングルクォートに続けて書いた文字で、フォーマット引数から生成することもできる。
+引数から前置パラメータを生成するには ~V~ を使って引数を前置パラメータとして消費するか、 ~#~ で残りのフォーマット引数の個数を前置パラメータとして取得する方法がある。
+#+begin_src lisp :results output verbatim
+  (format t "~v$" 3 pi)
+  (terpri)
+  (format t "~#$" pi)
+#+end_src
+
+#+RESULTS:
+: 3.142
+: 3.1
+
+** 基本フォーマット
+最も汎用な指示子は ~~A~ で、フォーマット引数を1つ消費して美的な(人が読める)形で出力する。
+~~S~ は人間向きというより、 ~READ~ で読み戻せるような出力を試みる。
+この2つは最大で4つの前置パラメータをとり、値の後ろにパディングを付加するかどうか制御できる。
+
+それ以外によく使うのは、改行を出力する ~~%~ 指示子と、新しい行を出力する ~~&~ 指示子がある。 ~~%~ は常に改行するが、 ~~&~ は行頭でない時のみ改行する。
+
+** 文字指示子・整数指示子・浮動小数点数指示子
+値の型に応じた指示子がある。文字を出力するのは ~~C~ 指示子で、文字に対してしか機能しないことを除けば ~~A~ と同じ。
+コロン修飾子をつけると、スペース、タブ、改行といった、本来は印字されない文字を名前で出力するようになる。
+アットマーク修飾子をつけると、Lispの文字リテラルのシンタックスで出力する。
+
+整数を出力するのは ~~D, ~~X, ~~O, ~~B, ~~R~ の5つ。それぞれ基数が異なる。
+コロンをつけると、桁区切りのカンマが入る。アットマークを付けると、常に符号を印字するようになる。
+1つめの前置パラメータで出力幅の最小値を指定し、2つめのパラメータでパディング文字を指定することができる。
+3つめと4つめでは、カンマ区切りの振る舞いを変えられる。
+
+浮動小数点数の値を整形する指示子は4種類ある。
 
 
