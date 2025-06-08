@@ -2224,6 +2224,233 @@ Common Lispは多重継承をサポートしている。普通はあまり問題
 1つめの前置パラメータで出力幅の最小値を指定し、2つめのパラメータでパディング文字を指定することができる。
 3つめと4つめでは、カンマ区切りの振る舞いを変えられる。
 
-浮動小数点数の値を整形する指示子は4種類ある。
+浮動小数点数の値を整形する指示子は ~~F, ~~E, ~~G, ~~$~ の4種類ある。普通は ~~F~ を使えば良さそう。
 
 
+** 英語の指示子
+英語の指示子にはやたら器用なものが多い。
+~~R~ は基数を指定せずに使うと、数値を英単語やローマ数字で印字する。
+#+begin_src lisp
+  (format nil "~r" 1234)
+#+end_src
+
+#+RESULTS:
+: one thousand two hundred thirty-four
+
+~~P~ は、対応する引数に応じて複数形の s や ies をつけてくれる。
+~~(~ ~~)~ はペアで使われ、その間に置かれた制御文字列の出力はすべて小文字に変換される。アットマークを付けると文の頭が大文字になり、コロンをつけると全ての単語の頭文字が大文字になる。コロンとアットマークを両方つけると、文章が全て大文字になる。
+
+** 条件による整形
+FORMATには制御構文を実装する指示子が用意されている。
+
+条件選択指示子 ~~[ ~~]~ は、この中に ~~;~ に区切られた節を複数置くことができ、制御文字列としてどれか一つが選ばれる。節の選択には数字のインデックスが使える
+#+begin_src lisp :results output
+  (format t "~[cero~;uno~;dos~]~%" 0)
+  (format t "~[cero~;uno~;dos~]~%" 1)
+  (format t "~[cero~;uno~;dos~]~%" 2)
+#+end_src
+
+#+RESULTS:
+: cero
+: uno
+: dos
+
+引数の値が節の個数より大きい場合は何も印字されない。ただし最後の節の区切りが ~~:;~ の場合は、最後の節がデフォルトの節として返される。
+インデックスではなく、前置パラメータを使って節を決定することもできる。普通はあまり意味がないが、前置パラメータ ~~#~ を使うと以下のような芸当ができる。
+#+begin_src lisp :results output
+  (defparameter *list-etc*
+    "~#[NONE~;~a~;~a and ~a~:;~a, ~a~]~#[~; and ~a~:;, ~a, etc~].~%")
+
+  (format t *list-etc*)
+  (format t *list-etc* 'a)
+  (format t *list-etc* 'a 'b)
+  (format t *list-etc* 'a 'b 'c)
+  (format t *list-etc* 'a 'b 'c 'd)
+#+end_src
+
+#+RESULTS:
+: NONE.
+: A.
+: A and B.
+: A, B and C.
+: A, B, C, etc.
+
+コロンをつけると、 ~~[~ には2つの節しか含められなくなる。このときはフォーマット引数を1つ消費して、その引数が ~NIL~ の場合には最初の節を処理し、それ以外の場合には2つめの節を処理するようになる。caseじゃなくてifになるわけか。
+アットマークをつけると ~~[~ には1つしか節を含められなくなる。指示子は引数を1つ消費し、それが ~NIL~ でなかったら、その引数をまた使えるように元の場所に戻してから、その節を処理する。
+
+** 反復
+反復指示子 ~~{~ はリストの要素や、リストに見立てたフォーマット引数を対象にして処理を繰り返す。修飾子がない場合はフォーマット引数としてリストを1つ消費し、要素がなくなるまで処理を繰り返す。
+#+begin_src lisp
+  (format nil "~{~a, ~}" (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: 1, 2, 3,
+
+最後についてしまうコンマとスペースを取り除くには、 ~~^~ 指示子を使う。
+アットマーク修飾子をつけて使うと、 ~~{~ は残りのフォーマット引数をリストとして処理する。
+#+begin_src lisp
+  (format nil "~@{~a~^, ~}" 1 2 3)
+#+end_src
+
+#+RESULTS:
+: 1, 2, 3
+
+~~{~ と ~~}~ の中では、前置パラメータ ~#~ が参照する値の意味が変わり、「ループで処理されずに残っている要素の個数」になる。
+#+begin_src lisp :results output
+  (defparameter *english-list*
+    "~{~#[~;~a~;~a and ~a~:;~@{~a~#[~;, and ~:;, ~]~}~]~}~%")
+
+  (format t *english-list* '())
+  (format t *english-list* '(1))
+  (format t *english-list* '(1 2))
+  (format t *english-list* '(1 2 3))
+  (format t *english-list* '(1 2 3 4))
+#+end_src
+
+#+RESULTS:
+: 
+: 1
+: 1 and 2
+: 1, 2, and 3
+: 1, 2, 3, and 4
+
+** 引数の読み飛ばし
+~~*~ を使うと、フォーマット引数の読み込み方を変更できる。修飾子をつけない形だと、次の引数を消費して、読み飛ばす。
+よく使われるのはコロンをつけた形で、こうすると引数のリストを前に戻れるようになり、同じ引数が2回使えるようになる。
+たとえば以下のようにすると、同じ引数を一回は英単語で、もう一回は数値で印字できる。
+#+begin_src lisp
+  (format nil "~r ~:*(~d)" 1)
+#+end_src
+
+#+RESULTS:
+: one (1)
+
+~~{~ 指示子の中では、 ~~*~ はリストにあるアイテムを飛ばしたり逆戻りしたりする。
+#+begin_src lisp
+  (format nil "~{~s~*~^ ~}" '(:a 10 :b 20))
+#+end_src
+
+#+RESULTS:
+: :A :B
+
+* 第19章 例外処理を越えて：コンディションと再起動
+#+begin_quote
+コンディションはプログラムの実行中に起こるすべての出来事を表現できるので、例外よりも汎用性が高い。
+#+end_quote
+#+begin_quote
+Common Lispのエラー処理システムのやり方は、実際にエラーから回復するコードと、どうやって回復するかを決めるコードとを分離するというものだ。これにより、どうやって回復するかという戦略は高位の関数のコードに任せて、回復のためのコードを低位の関数にか書けるようになる。
+#+end_quote
+
+例: Webサーバのログのようなテキスト形式のログファイルを読むアプリケーション
+- ~log-entry~ ログのエントリを表すオブジェクト
+- ~parse-log-entry~ 文字列を受け取り、log-entryを返す関数
+- ~parse-log-file~ ログファイル全体を読み込み、ファイル内の全エントリを表すリストを返す関数
+
+
+** コンディション
+コンディションは、コンディションの一般的な性質を示すクラスのオブジェクトで、そのインスタンスには詳細情報が保持されている。
+
+仮想的なログ解析プログラムのために、 ~parse-log-entry~ が「パースできないデータが与えられたこと」を通知するコンディションクラス ~malformed-log-entry-error~ を定義してみる。
+コンディションクラスは ~DEFINE-CONDITION~ マクロで定義する。これは本質的には ~DEFCLASS~ と同じだが、デフォルトのスーパークラスが ~CONDITION~ になっている点や、スロットに ~SLOT-VALUE~ でアクセスできない点が異なる。 ~MAKE-CONDITION~ で新しいコンディションオブジェクトを作成する。
+
+*エラー処理にコンディションを使う場合には、コンディションを ~CONDITION~ のサブクラスである ~ERROR~ のサブクラスとして定義すべきだ。*
+parse-log-entryへの引数を保持するスロットを持ったコンディションを定義するには次のようにする。
+#+begin_src lisp :eval no
+  (define-condition malformed-log-entry-error (error)
+    ((text :initarg :text :reader text)))
+#+end_src
+
+** コンディションハンドラ
+parse-log-entry内でエントリをパースできなかった場合、malformed-log-entry-errorが通知される。エラーは関数 ~ERROR~ を使って通知する。 ~ERROR~ はさらに低位の関数 ~SIGNAL~ を呼び出し、コンディションが処理されない場合にはデバッグに落ちる。
+
+~ERROR~ を呼ぶ方法は、コンディションオブジェクトを渡す方法と、コンディションクラスの名前と初期化引数を渡す方法の2種類ある。前者はコンディションオブジェクトを再利用するときに便利だが、一般に後者の方が簡潔になる。parse-log-entryは次のように書ける。
+#+begin_src lisp :eval no
+  (defun parse-log-entry (text)
+    (if (well-formed-log-entry-p text)
+        (make-instance 'log-entry ...)
+        (error 'malformed-log-entry-error :text text)))
+#+end_src
+
+エラーが通知されたときに何が起こるかは、コールスタック上でparse-log-entryの上位に何があるかによる。デバッガの発動を避けるには、parse-log-entryを呼び出す関数のどれかでコンディションハンドラを確立しなければならない。通知機構はコンディションが通知されたとき、アクティブなコンディションハンドラのリストを調べ、そこからコンディションを処理できるハンドラをコンディションのクラスに基づいて探し出す。
+
+各コンディションハンドラは、扱えるコンディションの型を示す型指定子と、コンディションを受ける1つの引数を取る関数とから構成されている。どの瞬間にも、コールスタックの様々なレベルで確立されたアクティブなコンディションハンドラがいくつも存在し得る。 *それらのうち通知機構が探し出すのは、通知されたコンディションと互換な型指定子を持つ、最も直近に確立されたハンドラだ。* 通知機構は、そのハンドラの関数にコンディションオブジェクトを渡して呼び出す。
+
+呼び出されたハンドラの関数では、コンディションを処理するかどうかを選択できる。
+コンディションを処理しない選択をした場合は、制御が ~SIGNAL~ 関数にもどり、互換性がある型指定子のうちで次に確立されたハンドラを探すことになる。
+コンディションを処理する場合には、関数は大域脱出を利用して制御を ~SIGNAL~ の外に移さなくてはいけない。たいてい、スタックを遡り、エラーの発生箇所で何らかのコードを実行することになる。
+
+コンディションハンドラは ~HANDLER-CASE~ マクロで作成できる。
+#+begin_src lisp :eval no
+  (handler-case expression
+    (condition-type ([var]) code)* )
+#+end_src
+expressionが何も起きず普通に戻った場合は、その戻り値が ~HANDLER-CASE~ から戻る。expressionがcondition-typeで指定されたコンディションを通知した場合には、適切なerror-clauseのコードが選択され、その実行結果が ~HANDLER-CASE~ の戻り値になる。varを指定すると、ハンドラのコードが実行されるときのコンディションオブジェクトを保持する変数の名前になる。
+
+例えば、malformed-log-entry-errorがparse-log-entryによって、呼び出しもと(parse-log-file)に通知されたとする。malformed-log-entry-errorを処理する方法としては、不正なエントリをスキップするという手がある。
+#+begin_src lisp
+  (defun parse-log-file (file)
+    (with-open-file (in file :direction :input)
+                    (loop for text = (read-line in nil nil) while text
+                          for entry = (handler-case (parse-log-entry text)
+                                                      (malformed-log-entry-error () nil))
+                          when entry collect it)))
+#+end_src
+
+
+** 再起動
+上記のparse-log-fileはエラー処理をやりすぎている。コンディションシステムではさらに、エラー処理のコードを2つの部分に分離する。Common Lispではコンディションハンドラをアプリケーションの上位に移し、再起動のコードをparse-log-fileやparse-log-entryといった中位や低位の関数におく。
+
+~RESTART-CASE~ は ~HANDLER-CASE~ によく似ているが、再起動の名前はコンディション型の名前である必要はない。
+#+begin_src lisp
+  (defun parse-log-file (file)
+    (with-open-file (in file :direction :input)
+                    (loop for text = (read-line in nil nil) while text
+                          for entry = (restart-case (parse-lot-entry text)
+                                                    (skip-log-entry () nil))
+                          when entry collect it)))
+#+end_src
+このparse-log-fileは直接はエラーを処理せず、最終的にはデバッガが起動する(restart)。ただしデバッガが用意した選択肢の中にskip-log-entryというのがあり、それを選択すれば、それまで通りparse-log-fileの処理が続けられる。デバッガを避けるには、skip-log-entryの再起動を自動的に呼び出すコンディションハンドラを確立すればいい。
+
+parse-log-fileでエラーを直接処理せず、代わりに再起動を確立することで、parse-log-file関数がより汎用的になった。
+高位のコードでは、エラーを処理するかどうかを選択できる。不正なログエントリを常にスキップするようにしたければ、高位の関数でskip-log-entry再起動を呼び出すコンディションハンドラを確立すればいい。
+ただし、 ~HANDLER-CASE~ が出てくる関数のところまでスタックが巻き戻ってしまうので、ここで ~HANDLER-CASE~ を使うことはできない。代わりに、より低位のマクロ ~HANDLER-BIND~ を使う必要がある。
+#+begin_src lisp :eval no
+  (handler-bind (binding*) form*)
+#+end_src
+各bindingはコンディション型とハンドラ関数からなるリスト。ハンドラは関数オブジェクトでなければならず、引数を1つ取らなければならない。そして、 ~HANDLER-BIND~ でバインドされたハンドラ関数は、 *スタックを巻き戻らずに実行される。*
+parse-log-entryでハンドラ関数が呼び出されたとすると、制御のフローは依然としてparse-log-entry呼び出しの内部にある。そのとき直近で束縛された再起動を呼び出すには ~INVOKE-RESTART~ を使う。
+
+これらを使って次のようにすれば、parse-log-fileで確立された再起動skip-log-entryを呼び出すハンドラを、より上位のコードlog-analyzerに追加できる。
+#+begin_src lisp
+  (defun skip-log-entry (c)
+    (invoke-restart 'skip-log-entry))
+
+  (defun log-analyzer ()
+    (handler-bind ((malformed-log-entry-error #'skip-log-entry))
+      (dolist (log (find-all-logs))
+        (analyze-log log))))
+#+end_src
+もしskip-log-entryが確立されずにmalformed-log-entry-errorが通知されると、 ~INVOKE-RESTART~ はskip-log-entry再起動を見つけられず、 ~CONTROL-ERROR~ を通知する。ある名前の再起動を見つけられなかった時に制御をより上位の関数に以上するには、 ~FIND-RESTART~ を使ってハンドラを以下のようにする
+#+begin_src lisp
+  (defun skip-log-entry (c)
+    (let ((restart (find-restart 'skip-log-entry)))
+      (when restart (invoke-restart restart))))
+#+end_src
+
+** 複数の再起動を提供する
+より複雑な手順での復帰に対応できるように、再起動では任意の数の引数をとって ~INVOKE-RESTART~ の呼び出しに渡せるようになっている。
+#+begin_src lisp
+  (defun parse-log-entry (text)
+    (if (well-formed-log-entry-p text)
+        (make-instance 'log-entry ...)
+      (restart-case (error 'malformed-log-entry-error :text text)
+                    (use-value (value) value)
+                    (reparse-entry (fixed-text) (parse-lot-entry fixed-text)))))
+#+end_src
+~USE-VALUE~ という名前は、「単純に与えられた値を戻り値として返す」ような再起動でよく使われる名前とのこと。
+
+** コンディションの別の使い道
+コンディションを通知しただけでは制御フローには何の影響もない。このことから、コンディションを別の目的で使うこともできる。
+
+通知の基本的な関数は ~SIGNAL~ という。 ~SIGNAL~ は適用可能なコンディションハンドラを探索し、そのハンドラ関数を起動する。
