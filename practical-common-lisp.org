@@ -2687,3 +2687,138 @@ COMMON-LISP-USERでは、Common Lisp の標準で定義されている全ての�
 : (EQL :A :A) => T
 
 ** 自分でパッケージを定義する
+パッケージでは、誰がどの関数を呼べてどの変数にアクセスできるかを直接制御することはできない。その代わり、どうやって名前をシンボルオブジェクトへと変換するかを制御することができる。したがって関数や変数をパッケージからエクスポートするというのは意味がない(HaskellやErlangのパッケージとはこの点が異なる)。
+
+パッケージがエクスポートできるのはシンボルだけ。名前がどうやって使われるかを、パッケージシステムで制限できるわけではない。
+言い換えると、パッケージでは名前空間を提供するが、アクセス制御は提供されていない。
+
+パッケージを定義するには ~DEFPACKAGE~ マクロを使う。このマクロによってパッケージを作れるだけでなく、インポートやエクスポート、名前衝突の解消ができる。
+もし作ろうとしているアプリケーションが標準ライブラリ以外使わないシンプルなものであると仮定すると、以下のようにしてパッケージを定義できる。
+#+begin_src lisp
+  (defpackage :jp.ac.dendai.im.cps.yoshiki.app1
+    (:use :common-lisp))
+#+end_src
+
+#+RESULTS:
+: #<PACKAGE "JP.AC.DENDAI.IM.CPS.YOSHIKI.APP1">
+
+このパッケージ内のコードを読み込むためには、 ~IN-PACKAGE~ マクロを使ってパッケージをLispのカレントパッケージにする必要がある。
+~IN-PACKAGE~ を実行すると ~*PACKAGE*~ の値が変わり、後続の式に影響する。この影響は再度 ~IN-PACKAGE~ を呼び出して変更するまで続く。
+#+begin_src lisp :results output
+  (in-package :jp.ac.dendai.im.cps.yoshiki.app1)
+  (dbg *package*)
+  (defun hello-world () (format t "hello from app1~%"))
+  (hello-world)
+  (in-package :cl-user)
+  (defun hello-world () (format t "hello from cl-user~%"))
+  (dbg *package*)
+  (hello-world)
+#+end_src
+
+#+RESULTS:
+: *PACKAGE* => #<PACKAGE "JP.AC.DENDAI.IM.CPS.YOSHIKI.APP1">
+: hello from app1
+: *PACKAGE* => #<PACKAGE "COMMON-LISP-USER">
+: hello from cl-user
+
+** シンボルのエクスポート・インポート
+作成したパッケージからシンボルをエクスポートするには、 ~:export~ を使って以下のようにする。
+#+begin_src lisp
+  (defpackage :jp.ac.dendai.im.cps.yoshiki.lib1
+    (:use :common-lisp)
+    (:export :open-db
+             :save
+             :store))
+#+end_src
+
+#+RESULTS:
+: #<PACKAGE "JP.AC.DENDAI.IM.CPS.YOSHIKI.LIB1">
+
+作成したパッケージからエクスポートしたシンボルを、別のパッケージでインポートするには ~:use~ を使って以下のようにする。
+#+begin_src lisp
+  (defpackage :jp.ac.dendai.im.cps.yoshiki.app2
+    (:use :common-lisp :jp.ac.dendai.im.cps.yoshiki.lib1))
+#+end_src
+
+#+RESULTS:
+: #<PACKAGE "JP.AC.DENDAI.IM.CPS.YOSHIKI.APP2">
+
+サードパーティのライブラリをインポートしたい場合も上記と同じように ~:use~ を使えるが、 ~:import-from~ を使って一部のシンボルだけをインポートするやり方もある。Pythonの import...from~~~ みたいな。
+#+begin_src lisp :eval no
+  (defpackage :jp.ac.dendai.im.cps.yoshiki.app3
+    (:use :common-lisp)
+    (:import-from :com.some.lib1 :com.some.lib2))
+#+end_src
+逆に、一部のシンボルだけ「インポートしたくない」こともあるかもしれない。例えば、同じ名前をエクスポートする2つのパッケージを使いたいというケースでは、衝突している名前を未修飾でインポートするわけにはいかない。そんな時は ~:shadow~ を使うことでシンボルのインポートを阻止し、名前の曖昧さを回避できる。
+#+begin_src lisp :eval no
+  (defpackage :jp.ac.dendai.im.cps.yoshiki.app3
+      (:use :common-lisp)
+      (:import-from :com.some.lib1 :com.some.lib2)
+      (:shadow :some-func :some-macro))
+#+end_src
+~:shadowing-import-from~ を使えば、曖昧さを解決して、衝突している名前をどちらのパッケージからのシンボルと見なすか決定できる。
+#+begin_src lisp :eval no
+  (defpackage :jp.ac.dendai.im.cps.yoshiki.app3
+      (:use :common-lisp)
+      (:import-from :com.some.lib1 :com.some.lib2)
+      (:shadow :some-func :some-macro) ; lib1, lib2 にある some-func, some-macro の名前は取り込まれない。ないものとされる
+      (:shadowing-import-from :com.some.lib1 :other-func) ; other-func は 名前が衝突しているけど、lib1由来のものということにする
+      (:shadowing-import-from :com.some.lib2 :other-macro)) ; other-macroはlib2由来ということにする
+#+end_src
+
+** パッケージ化の定石
+1. ~DEFPACKAGE~ をすべて集めて、別のファイルに置く。packages.lisp など
+2. 他のファイルをコンパイルしたりロードしたりする前に packages.lisp がロードされるようにする。
+
+実際には、ASDF や roswell を使うと簡単なんでしょうね。
+
+cc-ppcre は上記のやり方っぽかった。https://github.com/edicl/cl-ppcre
+深町さんはファイルごとに cl-user 環境で ~DEFPACKAGE~ してから、そのパッケージに ~IN-PACKAGE~ しているみたいだった。いずれこっちを真似しようと思う。 https://github.com/fukamachi/woo
+
+* 第22章 黒帯のためのLOOP
+LOOPでできること
+- 数値や変数を更新する
+- ループしている間に作られる値を収集(collect)、集計(count)、合計(sum)、最小化(minimize)、最大化(maximize)する
+- 任意の Lisp 式を実行する
+- いつループを終了するか決める
+- 上記を条件付きで実行する
+
+~LOOP~ は節の集合で、各節はループキーワードで始める。主要なキーワードには、 for, collect, sum, count, do, finally などがある。
+
+** ループ
+ループキーワード ~for~ で反復を制御できる。 ~as~ というエイリアスも用意されている。forの後には変数の名前が続く。
+#+begin_src lisp :eval no
+  (loop
+   for item in list
+   for i from 1 to 10
+   do (something))
+#+end_src
+
+~for~ はC言語のような形式を提供する。ループの開始・終了・ステップ のそれぞれで、追加で以下のようなキーワードがある。
+開始位置 ... from, downfrom, upfrom
+終了位置 ... to, upto, below, downto, above、
+ステップ ... by
+
+上記のキーワードを少なくとも1つ指定しなければならない。デフォルトでは0から始まり、ステップ数は+1で、永久にループする。
+#+begin_src lisp :results output
+  (dbg (loop for i upto 10 collect i))
+  (terpri)
+  (dbg (loop for i from 0 downto -10 collect i))
+#+end_src
+
+#+RESULTS:
+: (LOOP FOR I UPTO 10
+:       COLLECT I) => (0 1 2 3 4 5 6 7 8 9 10)
+: 
+: (LOOP FOR I FROM 0 DOWNTO -10
+:       COLLECT I) => (0 -1 -2 -3 -4 -5 -6 -7 -8 -9 -10)
+
+C言語のような形式ではなく、単に指定回数ループしたい(whileのような)場合には、代わりに ~repeat~ キーワードを使う。
+#+begin_src lisp :results output
+  (loop repeat 3 do (format t "hello~%"))
+#+end_src
+
+#+RESULTS:
+: hello
+: hello
+: hello
