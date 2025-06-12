@@ -2496,3 +2496,194 @@ parse-log-entryでハンドラ関数が呼び出されたとすると、制御�
 ** ローカルなフローの制御
 Common Lispの制御フローを支える下位のマクロとして、 ~BLOCK~, ~RETURN-FROM~, ~TAGBODY~, ~GO~ という4つの特殊オペレータがある。
 ~BLOCK~ と ~RETURN-FROM~ はあるコードのセクションからリターンするコードを書くために組み合わせて使う。 ~TAGBODY~ と ~GO~ も組み合わせて使い、高レベルなループ構文を支える、低レベルな goto構文を提供する。
+
+~BLOCK~ の基本的なフォームは以下の通り。nameはシンボルで、formはLispのフォーム。
+#+begin_src lisp :eval no
+  (block name
+         form*)
+#+end_src
+~BLOCK~ でhformが順番に評価されていく。途中で ~RETURN-FROM~ が使われてブロックから脱出してしまわない限り、最後のformが ~BLOCK~ 値として返される。 ~RETURN-FROM~ フォームは脱出するブロックの名前から構成され、オプションとして戻り値のフォームを提供する。 ~RETURN-FROM~ が評価されると、名前付き ~BLOCK~ から呼び出し元に、直ちに制御が戻る。  ~RETURN-FROM~ が戻り値のフォームと一緒に呼び出された場合には、その結果が ~BLOCK~ 全体の値となる。それ以外の場合、 ~BLOCK~ の評価結果は ~NIL~ になる。
+
+~BLOCK~ の名前は、 ~NIL~ を含めてどのようなシンボルでもいい。例えば ~DO~, ~DOTIMES~, ~DOLIST~ といった制御構文マクロの多くは、その展開系に ~NIL~ という名前の ~BLOCK~ を含んでいる。このおかげで、これらのループを抜けるのに ~RETURN-FROM nil~ の構文糖衣である ~RETURN~ マクロが使えている。
+#+begin_src lisp :results output
+  (dotimes (i 10)
+    (let ((answer (random 100)))
+      (print answer)
+      (if (> answer 50) (return))))
+#+end_src
+
+#+RESULTS:
+: 
+: 37 
+: 68 
+
+関数を定義する ~DEFUN~ マクロや ~FLET~, ~LABELS~ は、本体が関数と同じ名前の ~BLOCK~ オペレータで包まれている。このため、関数からの脱出に ~RETURN-FROM~ オペレータが使える。
+
+~TAGBODY~ と ~GO~ の関係は ~BLOCK~ と ~RETURN-FROM~ の関係に似ていて、 ~TAGBODY~ で定義したコンテクストの名前を ~GO~ が利用する。
+#+begin_src lisp :eval no
+  (tagbody
+     tag-or-compound-form*)
+#+end_src
+tag-or-compound-formには、タグと呼ばれるシンボルか、空でないリストのフォームを置く。リストのフォームは順番に評価され、タグは無視される。 ~TAGBODY~ のレキシカルスコープ内であれば、どこでも特殊オペレータ ~GO~ が使えて、どのタグへもすぐにジャンプできる。そして、そのタグに続けて評価が再開される。
+#+begin_src lisp
+  ;; 無限ループ
+  (tagbody
+     top
+       (print 'hello)
+       (go top))
+
+  ;; タグは複数あってもいい
+  (tagbody
+     a (print 'a) (if (zerop (random 2)) (go c))
+     b (print 'b) (if (zerop (random 2)) (go a))
+     c (print 'c) (if (zerop (random 2)) (go b)))
+#+end_src
+
+** スタックの巻き戻し
+コールスタックの振る舞いは、 ~BLOCK~ と ~TAGBODY~ によって実現されている。これらの特殊オペレータは普通は1つの関数における制御フローを扱うが、クロージャと組み合わせれば、非局所的な脱出に使うこともできる。
+
+ブロックの名前はレキシカルなスコープを持つ。そのため、 ~RETURN-FROM~ が戻るのは、常にレキシカル環境の一番内側の ~BLOCK~ からになる。 ~RETURN-FROM~ が異なる動的なコンテキストから実行されたとしても、この ~BLOCK~ からリターンする。言い換えると、ブロックの外側のコードがブロックの内側からリターンしたければ、 ~BLOCK~ のレキシカルスコープ内にある ~RETURN-FROM~ を含むクロージャを起動するしかない。
+~TAGBODY~ と ~GO~ も、この点では同じように動く。 ~GO~ を含むクロージャを起動したときに ~GO~ が評価されると、スタックが適切な ~TAGBODY~ まで巻き戻され、指定されたタグにジャンプする。
+
+ただし、 ~BLOCK~ や ~TAGBODY~ はレキシカル変数の束縛とは異なり、これらがコールスタックに積まれている間だけ利用可能なことに注意。これを、 ~BLOCK~ や ~TAGBODY~ は動的エクステントを持つ、などという。
+
+スタックの制御にかかわる特殊オペレータには最後にもう一つ、 ~UNWIND-PROTECT~ がある。これを使うと、スタックを巻き戻す時に起こることを制御できる。 ~UNWIND-PROTECT~ のスコープからどうやって制御が抜けるかにかかわらず、スコープから抜けた際に常に特定のコードが実行されることを保証することができる。つまり finally 節みたいなもの。
+#+begin_src lisp :eval no
+  (unwind-protect protected-form
+    cleanup-form*)
+#+end_src
+あまり ~UNWIND-PROTECT~ を直接使うことはなく、WITH-系のマクロのベースとして使う。
+
+** 多値
+多値を返すことは、リストを返すのとはまったく違う。フォームから多値を返したら、その多値を捕える特別な操作をしない限り、1つめの値以外は捨てられてしまう。
+
+多値を返すには、関数 ~VALUES~ と ~VALUES-LIST~ を使う。 ~VALUES~ は可変個の引数を取り、それらを多値として返す。 ~VALUES-LIST~ はリストを1つとり、その要素を多値として返す。関数でこれらの関数を使うと、その関数は多値を返すようになる。しかし、フォームが評価される時には先頭の値だけ使われる。
+
+フォームによって返された多値を扱うには、特殊オペレータ ~MULTIPLE-VALUE-CALL~ が必要になる。これは ~FUNCALL~ に似ているが、関数に多値を渡すことができる点が異なる。
+多値を変数に格納したいときは、 ~MULTIPLE-VALUE-BIND~ マクロを使う。
+#+begin_src lisp :eval no
+  (multiple-value-bind (variable*) values-form
+    body-form*)
+#+end_src
+values-form が評価され、返された多値が variables に束縛される。そしてその束縛が有効な状態で body-forms が評価される。
+#+begin_src lisp
+  (multiple-value-bind (x y) (values 1 2)
+    (+ x y))
+#+end_src
+
+#+RESULTS:
+: 3
+
+もう一つのマクロ ~MULTIPLE-VALUE-LIST~ はより単純で、フォームを1つとり、それを評価した結果の多値をリストにして返す。つまり ~VALUES-LIST~ の反対。
+#+begin_src lisp
+  (multiple-value-list (values 1 2))
+#+end_src
+
+#+RESULTS:
+| 1 | 2 |
+
+最後に、~VALUES~ は ~SETF可能~ なので、フォームによって戻される多値を既存の変数に代入することができる。
+#+begin_src lisp :results output
+  (defparameter *x* nil)
+  (defparameter *y* nil)
+  (dbg (setf (values *x* *y*) (floor (/ 57 34))))
+  (dbg *x*)
+  (dbg *y*)
+#+end_src
+
+#+RESULTS:
+: (SETF (VALUES *X* *Y*) (FLOOR (/ 57 34))) => 1
+: *X* => 1
+: *Y* => 23/34
+
+** EVAL-WHEN
+~EVAL-WHEN~ は複雑な特殊オペレータだが、ある種のマクロを書くためには必要らしい。 ~EVAL-WHEN~ を理解するための必要条件は、 ~LOAD~ と ~COMPILE-FILE~ という2つの関数のやりとりを理解することだけ、とのこと。
+
+~LOAD~ の仕事は、ファイルをロードしてすべてのファイルに含まれる全てのトップレベルフォームを評価すること。 ~COMPILE-FILE~ の仕事は、ソースファイルをFASLファイルにコンパイルすること。コンパイルされたFASLファイルは、Lispファイルと同じようにロードできる。
+~LOAD~ では、先に評価するフォームの副作用が後のフォームの読み込みと評価の方法に影響しうる。一方の ~COMPILE-FILE~ は、通常はコンパイルするフォームを評価せず、FASLが読み込まれる時にそのフォームが評価される。ただし ~LOAD~ との生合成を取るために、 ~IN-PACKAGE~ や ~DEFMACRO~ といったフォームは評価する。
+
+では、 ~IN-PACKAGE~ や ~DEFMACRO~ のようなフォームを、どのようにして先に評価するのか？
+Common Lispではこれらを ~EVAL-WHEN~ を使って評価する。このオペレータを使うと、コードの特定の部分がいつ評価されるかを制御できるようになる。
+#+begin_src lisp :eval no
+  (eval-when (situation*)
+    body-form*)
+#+end_src
+situationには ~:compile-toplevel~, ~:load-toplevel~, ~:execute~ の3種類があり、指定された状況に応じてbody-formが評価される。
+
+まず、トップレベルフォームには以下のものがある
+- トップレベルに直接現れるフォーム
+- トップレベルにある ~PROGN~ に現れるフォーム
+- ~MACROLET~ や ~SYMBOL-MACROLET~ に現れるフォーム
+- トップレベルのマクロフォームの展開形
+
+~EVAL-WHEN~ がトップレベルフォームの場合、 ~:compile-toplevel~ を指定すると、ファイルコンパイラは部分フォームをコンパイル時に評価するようになる。 ~:load-toplevel~ を指定すると、部分フォームはトップレベルフォームとしてコンパイルされる。いずれも指定しないと、トップレベルの ~EVAL-WHEN~ はコンパイラに無視される。
+
+~EVAL-WHEN~ が非トップレベルフォームとしてコンパイルされる場合、 ~:execute~ が指定されていれば ~PROGN~ のようにコンパイルされ、指定がなければ無視される。 ~LOAD~ によって処理されたソースファイルのトップレベルにある ~EVAL-WHEN~ や、 ~:compile-toplevel~ が指定されたトップレベルの ~EVAL-WHEN~ の部分フォームにある ~EVAL-WHEN~ も、 ~:execute~ が指定されていれば ~PROGN~ のように処理され、指定がなければ無視される。
+
+~EVAL-WHEN~ を使う主な場面は2つある。
+- コンパイル時の情報を保存しておいて、同じファイル中の他のマクロフォームの展開に利用する場合
+- マクロの定義とヘルパー関数の定義を、そのマクロを利用するコードと同じファイルに置きたい場合。 ~DEFMACRO~ はコンパイル時に読み込まれるが ~DEFUN~ はそうではない。マクロでヘルパー関数を使っている場合は、その関数を ~:compile-toplevel~ 付きの ~EVAL-WHEN~ で包むことで、マクロに関する全ての定義をコンパイル時に読み込むことができる。
+
+
+* 第21章 大規模開発に向けて：パッケージとシンボル
+Common Lispの読み取り機はどのようにして、名前を形作る文字列をシンボルに変換するのだろうか？ 名前衝突を避けるには？
+
+** パッケージ
+パッケージとは文字列とシンボルを対応づける表だと考えることができる。パッケージには名前があり、その名前と ~FIND-PACKAGE~ 関数でパッケージを探すことができる。
+
+読取器は、あるパッケージの対応表に、 ~FIND-SYMBOL~ と ~INTERN~ の2つの関数を使ってアクセスする。両方とも文字列を引数にとり、オプションでパッケージを指定できる。引数としてパッケージを渡さないと、デフォルト値である ~*PACKAGE*~ の値が使われる。 ~*PACKAGE*~ はカレントパッケージと呼ばれる。
+~FIND-SYMBOL~ は与えられた文字列を名前に持つシンボルをパッケージの中から探し、そのシンボルを返す。シンボルが見つからない場合は ~NIL~ を返す。 ~INTERN~ もほぼ同じ振る舞いをするが、シンボルが見つからない時には代わりに、新しくシンボルを作ってパッケージに追加する。
+
+コロンを1つだけ含む名前は、外部パッケージの公開シンボルを参照できる。コロンを2つ連続して含む名前は、外部パッケージの全てのシンボルを参照できるが、プライベートなインタフェースにアクセスしているということなので、推奨されない。
+コロンではじまる名前は特殊で、これはキーワードシンボルになる。キーワードシンボルは ~KEYWARD~ パッケージにインターンされ、自動的にエクスポートされる。
+~#:~ ではじまる名前も特殊で、これはアンインターンドシンボルと呼ばれ、どのパッケージにも属さない。 ~GENSYM~ 関数で見かける。
+
+
+** 標準パッケージ
+Common Lispには標準パッケージが3つある。COMMON-LISP-USER, COMMON-LISP, そしてKEYWORD パッケージだ。
+
+最初にLispを起動した時の ~*PACKAGE*~ の値は、 COMMON-LISP-USER になる。CL-USER という省略形の場合もある。
+#+begin_src lisp
+ *package*
+#+end_src
+
+#+RESULTS:
+: #<PACKAGE "COMMON-LISP-USER">
+
+COMMON-LISP-USERでは、Common Lisp の標準で定義されている全てのシンボルをエクスポートしている COMMON-LISP パッケージを利用できる。もし ~REPL~ で言語標準の名前を使うと、それらは COMMON-LISP パッケージからエクスポートされたシンボルへと変換される。それ以外の名前は、COMMON-LISP-USER パッケージにインターンされる。
+#+begin_src lisp :results output
+  ;; パッケージ名
+  (dbg common-lisp:*package*)
+  (dbg cl:*package*)
+
+  ;; どのパッケージのシンボルを継承しているか確認する
+  (dbg (mapcar #'package-name (package-use-list :cl-user)))
+  (dbg (mapcar #'package-name (package-use-list :common-lisp)))
+
+  ;; 特定のシンボル('car)がどのパッケージに由来するものなのか調べる
+  (dbg (package-name (symbol-package 'car)))
+#+end_src
+
+#+RESULTS:
+: *PACKAGE* => #<PACKAGE "COMMON-LISP-USER">
+: *PACKAGE* => #<PACKAGE "COMMON-LISP-USER">
+: (MAPCAR #'PACKAGE-NAME (PACKAGE-USE-LIST :CL-USER)) => ("COMMON-LISP"
+:                                                         "SB-ALIEN" "SB-DEBUG"
+:                                                         "SB-EXT" "SB-GRAY"
+:                                                         "SB-PROFILE")
+: (MAPCAR #'PACKAGE-NAME (PACKAGE-USE-LIST :COMMON-LISP)) => NIL
+: (PACKAGE-NAME (SYMBOL-PACKAGE 'CAR)) => "COMMON-LISP"
+
+3つめに、読取器が転んではじまる名前をインターンする際に使う ~KEYWORD~ パッケージが標準で使える。
+#+begin_src lisp :results output
+  (dbg :a)
+  (dbg keyword:a)
+  (dbg (eql :a keyword:a))
+#+end_src
+
+#+RESULTS:
+: :A => :A
+: :A => :A
+: (EQL :A :A) => T
+
+** 自分でパッケージを定義する
