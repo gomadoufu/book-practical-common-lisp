@@ -1,10 +1,21 @@
-(load "portable-pathname-lib.lisp")
-(in-package :cl-user)
-(defpackage :jp.ac.dendai.im.cps.yoshiki.spam
-  (:use :common-lisp :jp.ac.dendai.im.cps.yoshiki.pathnames))
+(uiop:define-package spam-filter
+  (:use #:cl)
+  (:export #:classify
+           #:*max-ham-score*
+           #:*min-spam-score*
+           #:classification
+           #:word-feature
+           #:word
+           #:spam-count
+           #:ham-count
+           #:*feature-database*
+           #:clear-database
+           #:intern-feature
+           #:extract-words
+           #:extract-features))
+(in-package #:spam-filter)
 
-(in-package :jp.ac.dendai.im.cps.yoshiki.spam)
-
+;; blah blah blah.
 (defun classify (text)
   (classification (score (extract-features text))))
 
@@ -51,3 +62,34 @@
 
 (defun extract-features (text)
   (mapcar #'intern-feature (extract-words text)))
+
+(defmethod print-object ((object word-feature) stream)
+  (print-unreadable-object (object stream :type t)
+    (with-slots (word ham-count spam-count) object
+      (format stream "~s :hams ~d :spams ~d" word ham-count spam-count))))
+
+
+;;; 学習部分
+(defun train (text type)
+  (dolist (feature (extract-features text))
+    (increment-count feature type))
+  (increment-total-count type))
+
+(defun increment-count (feature type)
+  (ecase type
+    (ham (incf (ham-count feature)))
+    (spam (incf (spam-count feature)))))
+
+(defvar *total-spams* 0)
+(defvar *total-hams* 0)
+
+(defun increment-total-count (type)
+  (ecase type
+    (ham (incf *total-hams*))
+    (spam (incf *total-spams*))))
+
+(defun clear-database ()
+  (setf
+   *feature-database* (make-hash-table :test #'equal)
+   *total-spams* 0
+   *total-hams* 0))
